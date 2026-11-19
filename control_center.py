@@ -190,7 +190,10 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 
 def is_valid_github_repo(value: object) -> bool:
-    return isinstance(value, str) and bool(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value))
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
+        return False
+    owner, repository = value.split("/", 1)
+    return owner not in {".", ".."} and repository not in {".", ".."}
 
 
 def delete_drive_candidates(drive, candidates: list[tuple[str, dict]]) -> tuple[int, int, str | None]:
