@@ -113,7 +113,7 @@ def build_artifact_download_path(download_dir: Path, run_id: str, artifact_id: s
 
 def is_safe_local_redirect_uri(uri: str) -> bool:
     """Accept only explicit-port HTTP callbacks on the local machine."""
-    if not isinstance(uri, str) or uri != uri.strip() or any(ord(ch) < 32 for ch in uri):
+    if not isinstance(uri, str) or uri != uri.strip() or chr(92) in uri or any(ord(ch) < 32 for ch in uri):
         return False
     try:
         parsed = urlparse(uri)
