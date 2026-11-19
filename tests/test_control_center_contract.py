@@ -65,6 +65,8 @@ class OAuthRedirectValidationTests(unittest.TestCase):
     def test_query_and_fragment_are_rejected(self):
         self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback?next=evil"))
         self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback#fragment"))
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback?"))
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback#"))
 
     def test_control_characters_are_rejected(self):
         self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback\r\n"))
