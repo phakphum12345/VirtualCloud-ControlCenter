@@ -30,12 +30,20 @@
 - Drive credentials remain in user AppData and GitHub Secrets only.
 - Health checks reveal status only; they never display secret values.
 
-## Validation performed
+## Validation performed in the v3.3 release cycle
 
 - Python compile check for `control_center.py` and `bridge_worker.py`.
 - YAML parse check for all workflow files.
 - GUI smoke test verifies the main window starts and the expected tabs/buttons exist.
 - Package ZIP integrity and SHA-256 manifest regenerated.
+
+These are historical release-cycle notes, not evidence that the current repository head has been re-tested. Current CI evidence is recorded in GitHub Actions for the exact commit under test.
+
+## Safety and integrity follow-up
+
+- The current Bootstrap implementation is plan-only by default and performs no remote repository, workflow, commit, push, or GitHub Secret writes.
+- Control Center Bootstrap arguments must match the current PowerShell script parameter contract.
+- Artifact checksum failures must fail the Drive sync receipt; unsafe manifest paths must never be followed outside the extracted artifact directory.
 
 
 ## Bound Google Cloud project
