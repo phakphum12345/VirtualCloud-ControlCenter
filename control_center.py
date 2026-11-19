@@ -134,6 +134,11 @@ def is_safe_local_redirect_uri(uri: str) -> bool:
     )
 
 
+def escape_oauth_error_html(value: object) -> str:
+    """Render an OAuth error as bounded, HTML-escaped text."""
+    return html_escape(str(value)[:1000])
+
+
 def app_data_dir() -> Path:
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", Path.home()))
@@ -1834,7 +1839,7 @@ def authorize_google_drive(client_file: str, output_file: str) -> int:
                     else:
                         result["authorization_response"] = redirect_uri.split(callback_path, 1)[0] + self.path
 
-                    error_html = html_escape(str(result["error"])[:1000]) if result["error"] else ""
+                    error_html = escape_oauth_error_html(result["error"]) if result["error"] else ""
                     body = (
                         "<html><body style='font-family:Segoe UI,Arial;padding:32px'>"
                         "<h2>Virtual Cloud Control Center</h2>"
