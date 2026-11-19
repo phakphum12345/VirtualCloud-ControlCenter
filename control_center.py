@@ -131,6 +131,8 @@ def is_safe_local_redirect_uri(uri: str) -> bool:
         and parsed.path.startswith("/")
         and not parsed.query
         and not parsed.fragment
+        and "?" not in uri
+        and "#" not in uri
     )
 
 
