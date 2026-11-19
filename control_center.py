@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import webbrowser
 from dataclasses import asdict, dataclass
@@ -169,6 +170,45 @@ def default_download_dir() -> str:
     return str(base)
 
 
+def atomic_write_text(path: Path, content: str) -> None:
+    """Atomically replace a UTF-8 text file without exposing partial writes."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\\n") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, target)
+    finally:
+        try:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
+        except OSError:
+            pass
+
+
+def is_valid_github_repo(value: object) -> bool:
+    return isinstance(value, str) and bool(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value))
+
+
+def delete_drive_candidates(drive, candidates: list[tuple[str, dict]]) -> tuple[int, int, str | None]:
+    """Delete old Drive files and return accurate success/failure counts."""
+    removed = 0
+    failed = 0
+    first_error = None
+    for _, item in candidates:
+        try:
+            drive.files().delete(fileId=item["id"]).execute()
+            removed += 1
+        except Exception as exc:
+            failed += 1
+            if first_error is None:
+                first_error = type(exc).__name__
+    return removed, failed, first_error
+
+
 @dataclass
 class AppConfig:
     repo: str = DEFAULT_REPO
@@ -183,21 +223,46 @@ class AppConfig:
     selected_repo: str = ""
 
     @classmethod
+    def from_mapping(cls, data: object, base: "AppConfig | None" = None) -> "AppConfig":
+        if not isinstance(data, dict):
+            raise ValueError("Settings file must contain a JSON object.")
+        config = base or cls()
+        string_fields = ("credential_path", "oauth_client_path", "package_dir", "download_dir", "selected_repo")
+        for key in string_fields:
+            value = data.get(key)
+            if isinstance(value, str):
+                setattr(config, key, value)
+        repo_value = data.get("repo")
+        if is_valid_github_repo(repo_value):
+            config.repo = repo_value
+        elif "repo" in data:
+            config.repo = DEFAULT_REPO
+        if config.selected_repo and not is_valid_github_repo(config.selected_repo):
+            config.selected_repo = ""
+        for key in ("auto_refresh", "notifications"):
+            value = data.get(key)
+            if isinstance(value, bool):
+                setattr(config, key, value)
+        for key, lower, upper in (("refresh_seconds", 5, 3600), ("retention_days", 1, 3650)):
+            value = data.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                setattr(config, key, min(upper, max(lower, value)))
+        if not config.download_dir.strip():
+            config.download_dir = default_download_dir()
+        return config
+
+    @classmethod
     def load(cls) -> "AppConfig":
+        if not CONFIG_PATH.exists():
+            return cls()
         try:
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            base = cls()
-            for key in asdict(base):
-                if key in data:
-                    setattr(base, key, data[key])
-            base.refresh_seconds = max(5, int(base.refresh_seconds))
-            base.retention_days = max(1, int(base.retention_days))
-            return base
-        except Exception:
+            return cls.from_mapping(data)
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
             return cls()
 
     def save(self) -> None:
-        CONFIG_PATH.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+        atomic_write_text(CONFIG_PATH, json.dumps(asdict(self), indent=2))
 
 
 class CommandRunner:
@@ -864,7 +929,7 @@ class ControlCenter(tk.Tk):
         if not path: return
         self.save_settings()
         data = asdict(self.config_data)
-        Path(path).write_text(json.dumps(data, indent=2), encoding="utf-8")
+        atomic_write_text(Path(path), json.dumps(data, indent=2))
         self.audit("export-settings", path, "success")
 
     def import_settings(self):
@@ -872,9 +937,11 @@ class ControlCenter(tk.Tk):
         if not path: return
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("Settings file must contain a JSON object.")
             current = asdict(self.config_data)
             current.update({k: v for k, v in data.items() if k in current})
-            self.config_data = AppConfig(**current)
+            self.config_data = AppConfig.from_mapping(current, base=self.config_data)
             self.config_data.save()
             self.audit("import-settings", path, "success")
             messagebox.showinfo(APP_NAME, "Settings imported. Reopen the Control Center to apply every UI field.")
@@ -928,7 +995,7 @@ class ControlCenter(tk.Tk):
                     + WEB_OAUTH_DEFAULT_REDIRECT
                 )
         OAUTH_CLIENT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        OAUTH_CLIENT_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        atomic_write_text(OAUTH_CLIENT_PATH, json.dumps(data, indent=2))
         try:
             os.chmod(OAUTH_CLIENT_PATH, 0o600)
         except Exception:
@@ -1739,12 +1806,21 @@ class ControlCenter(tk.Tk):
                 def confirm():
                     if not messagebox.askyesno(APP_NAME, f"Delete {len(candidates)} Drive files older than {days} days? This cannot be undone."): return
                     def deleter():
-                        removed = 0
-                        for _, f in candidates:
-                            try: drive.files().delete(fileId=f["id"]).execute(); removed += 1
-                            except Exception: pass
-                        self.audit("drive-cleanup", f">{days}d", "success", f"deleted={removed}")
-                        self.after(0, lambda: messagebox.showinfo(APP_NAME, f"Deleted {removed} old Drive files."))
+                        removed, failed, first_error = delete_drive_candidates(drive, candidates)
+                        status = "success" if failed == 0 else ("partial" if removed else "failed")
+                        details = f"deleted={removed}; failed={failed}"
+                        if first_error:
+                            details += f"; first_error={first_error}"
+                        self.audit("drive-cleanup", f">{days}d", status, details)
+                        def notify():
+                            if failed:
+                                messagebox.showwarning(
+                                    APP_NAME,
+                                    f"Deleted {removed} old Drive files; {failed} failed. First error: {first_error}.",
+                                )
+                            else:
+                                messagebox.showinfo(APP_NAME, f"Deleted {removed} old Drive files.")
+                        self.after(0, notify)
                         self.after(0, self.refresh_sync_history)
                     threading.Thread(target=deleter, daemon=True).start()
                 self.after(0, confirm)
@@ -1880,7 +1956,7 @@ def authorize_google_drive(client_file: str, output_file: str) -> int:
 
         out = Path(output_file)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(credentials.to_json(), encoding="utf-8")
+        atomic_write_text(out, credentials.to_json())
         try:
             os.chmod(out, 0o600)
         except Exception:
