@@ -36,6 +36,14 @@ class RunnerWorkflowCredentialTests(unittest.TestCase):
         workflow = (ROOT / "virtual-cloud-runners.yml").read_text(encoding="utf-8")
         self.assertIn("persist-credentials: false", workflow)
 
+    def test_missing_build_hook_fails_unless_noop_is_explicit(self):
+        workflow = (ROOT / "virtual-cloud-runners.yml").read_text(encoding="utf-8")
+        self.assertIn("allow_noop:", workflow)
+        self.assertIn("default: false", workflow)
+        self.assertIn("explicitly set allow_noop=true", workflow)
+        self.assertIn("exit 1", workflow)
+        self.assertIn("throw 'No project build hook was found.", workflow)
+
 
 class ArtifactDirectoryVerificationTests(unittest.TestCase):
     def test_valid_manifest_passes(self):
