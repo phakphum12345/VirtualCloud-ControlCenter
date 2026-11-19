@@ -77,7 +77,8 @@ class OAuthRedirectValidationTests(unittest.TestCase):
 
 class OAuthRedirectBackslashTests(unittest.TestCase):
     def test_backslash_url_confusion_is_rejected(self):
-        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765\\\\@attacker.example/oauth2callback"))
+        uri = "http://localhost:8765" + chr(92) + "@attacker.example/oauth2callback"
+        self.assertFalse(control_center.is_safe_local_redirect_uri(uri))
 
 
 class ArtifactDownloadPathTests(unittest.TestCase):
