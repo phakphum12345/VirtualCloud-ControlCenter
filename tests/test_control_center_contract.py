@@ -45,6 +45,28 @@ class RunnerWorkflowCredentialTests(unittest.TestCase):
         self.assertIn("throw 'No project build hook was found.", workflow)
 
 
+class OAuthRedirectValidationTests(unittest.TestCase):
+    def test_localhost_redirect_with_port_is_allowed(self):
+        self.assertTrue(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback"))
+
+    def test_ipv4_loopback_redirect_with_port_is_allowed(self):
+        self.assertTrue(control_center.is_safe_local_redirect_uri("http://127.0.0.1:7357/oauth2callback"))
+
+    def test_userinfo_host_confusion_is_rejected(self):
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765@attacker.example:80/oauth2callback"))
+
+    def test_non_loopback_host_is_rejected(self):
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://attacker.example:8765/oauth2callback"))
+
+    def test_https_and_missing_port_are_rejected(self):
+        self.assertFalse(control_center.is_safe_local_redirect_uri("https://localhost:8765/oauth2callback"))
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost/oauth2callback"))
+
+    def test_query_and_fragment_are_rejected(self):
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback?next=evil"))
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback#fragment"))
+
+
 class ArtifactDownloadPathTests(unittest.TestCase):
     def test_artifact_name_cannot_escape_download_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
