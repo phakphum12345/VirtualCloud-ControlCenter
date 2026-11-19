@@ -211,10 +211,9 @@ try {
         Stop-Bootstrap 'Clone root does not match isolated workspace.'
     }
     $origin = Get-NativeOutput 'git' @('-C', $repoDir, 'remote', 'get-url', 'origin') 'Could not verify clone origin.'
-    $suffix = '/' + $Repo
-    $cleanOrigin = $origin.TrimEnd('/')
-    if (-not ($cleanOrigin -imatch ([regex]::Escape($suffix) + '(\.git)?$'))) {
-        Stop-Bootstrap 'Clone origin does not match requested repository.'
+    $originPattern = '^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)' + [regex]::Escape($Repo) + '(\.git)?$'
+    if ($origin -notmatch $originPattern) {
+        Stop-Bootstrap 'Clone origin is not the exact requested GitHub repository.'
     }
     $branch = Get-NativeOutput 'git' @('-C', $repoDir, 'branch', '--show-current') 'Could not verify checked-out branch.'
     if ($branch -cne $defaultBranch) { Stop-Bootstrap 'Clone is not on verified default branch.' }
@@ -230,12 +229,14 @@ try {
         $target = Join-Path $repoDir ($entry.Value -replace '/', [IO.Path]::DirectorySeparatorChar)
         Assert-NoReparsePointInPath -Path $target -BoundaryRoot $repoDir
         $sourceHash = Get-FileSha256 $source
+        $targetHash = $null
         if (Test-Path -LiteralPath $target) {
             if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { Stop-Bootstrap "Target is not a regular file: $($entry.Value)" }
-            $action = if ((Get-FileSha256 $target) -ceq $sourceHash) { 'UNCHANGED' } else { 'UPDATE' }
+            $targetHash = Get-FileSha256 $target
+            $action = if ($targetHash -ceq $sourceHash) { 'UNCHANGED' } else { 'UPDATE' }
         }
         else { $action = 'ADD' }
-        $plan += [pscustomobject]@{ Source = $entry.Key; Target = $entry.Value; SourceHash = $sourceHash; Action = $action }
+        $plan += [pscustomobject]@{ Source = $entry.Key; Target = $entry.Value; SourceHash = $sourceHash; TargetHash = $targetHash; Action = $action }
     }
 
     $ignorePath = Join-Path $repoDir '.gitignore'
@@ -273,8 +274,17 @@ try {
         Assert-NoReparsePointInPath -Path $source -BoundaryRoot $sourceRoot
         Assert-NoReparsePointInPath -Path $target -BoundaryRoot $repoDir
         if ((Get-FileSha256 $source) -cne $entry.SourceHash) { Stop-Bootstrap "Source changed after planning: $($entry.Source)" }
-        if ((Test-Path -LiteralPath $target) -and -not (Test-Path -LiteralPath $target -PathType Leaf)) {
-            Stop-Bootstrap "Target is not a regular file: $($entry.Target)"
+        if (Test-Path -LiteralPath $target) {
+            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+                Stop-Bootstrap "Target is not a regular file: $($entry.Target)"
+            }
+            if ($entry.Action -eq 'ADD') { Stop-Bootstrap "Target appeared after planning: $($entry.Target)" }
+            if ($entry.Action -eq 'UPDATE' -and (Get-FileSha256 $target) -cne $entry.TargetHash) {
+                Stop-Bootstrap "Target changed after planning: $($entry.Target)"
+            }
+        }
+        elseif ($entry.Action -eq 'UPDATE') {
+            Stop-Bootstrap "Target disappeared after planning: $($entry.Target)"
         }
         $parent = Split-Path -Parent $target
         Assert-NoReparsePointInPath -Path $parent -BoundaryRoot $repoDir
