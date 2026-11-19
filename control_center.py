@@ -1164,7 +1164,7 @@ class ControlCenter(tk.Tk):
 
             code, _ = self._run_quiet(["gh", "repo", "view", repo, "--json", "nameWithOwner"])
             if code != 0:
-                result.update({"Control repo": "Not accessible", "GitHub Workflows": "Not ready", "GitHub Secrets": "Not ready", "Drive Sync": "Not ready", "Last Sync": "Never"})
+                result.update({"Control repo": "Not accessible", "GitHub Workflows": "Not ready", "GitHub Secrets": "Not ready", "Drive Sync": "Not ready", "Last Sync": "Unknown"})
                 self.after(0, lambda: self._apply_health(result)); self.after(0, lambda: self._apply_runtime("Not ready", "Not ready")); return
             result["Control repo"] = "Ready"
 
