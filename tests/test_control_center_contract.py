@@ -1,0 +1,69 @@
+import hashlib
+import re
+import tempfile
+import unittest
+from pathlib import Path
+
+import control_center
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class BootstrapCommandContractTests(unittest.TestCase):
+    def test_command_uses_only_supported_bootstrap_parameter(self):
+        script = ROOT / "bootstrap-control-plane.ps1"
+        command = control_center.build_bootstrap_command(script, "owner/control-plane")
+        self.assertEqual(
+            command,
+            [
+                "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", str(script), "-Repo", "owner/control-plane",
+            ],
+        )
+        source = script.read_text(encoding="utf-8")
+        match = re.search(r"(?s)param\((.*?)\n\)", source)
+        self.assertIsNotNone(match, "Bootstrap script parameter block must exist")
+        declared = set(re.findall(r"\$([A-Za-z_]\w*)", match.group(1)))
+        passed = {command[i][1:] for i in range(command.index("-Repo"), len(command), 2) if command[i].startswith("-")}
+        self.assertTrue(passed.issubset(declared))
+        self.assertNotIn("-DriveUserCredentialsJsonPath", command)
+        self.assertNotIn("-SkipSecrets", command)
+
+
+class ArtifactDirectoryVerificationTests(unittest.TestCase):
+    def test_valid_manifest_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = b"artifact payload"
+            (root / "artifact.bin").write_bytes(payload)
+            digest = hashlib.sha256(payload).hexdigest()
+            (root / "SHA256SUMS.txt").write_text(f"{digest}  artifact.bin\n", encoding="utf-8")
+            ok, detail = control_center.ControlCenter._verify_directory(root)
+            self.assertTrue(ok, detail)
+            self.assertIn("Verified 1 files", detail)
+
+    def test_parent_traversal_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifact"
+            root.mkdir()
+            outside = Path(tmp) / "outside.txt"
+            outside.write_text("must not be read", encoding="utf-8")
+            digest = hashlib.sha256(b"must not be read").hexdigest()
+            (root / "SHA256SUMS.txt").write_text(f"{digest}  ../outside.txt\n", encoding="utf-8")
+            ok, detail = control_center.ControlCenter._verify_directory(root)
+            self.assertFalse(ok)
+            self.assertIn("unsafe or invalid", detail)
+
+    def test_malformed_digest_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "artifact.bin").write_bytes(b"x")
+            (root / "SHA256SUMS.txt").write_text("not-a-digest  artifact.bin\n", encoding="utf-8")
+            ok, detail = control_center.ControlCenter._verify_directory(root)
+            self.assertFalse(ok)
+            self.assertIn("unsafe or invalid", detail)
+
+
+if __name__ == "__main__":
+    unittest.main()
