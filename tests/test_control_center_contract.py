@@ -48,6 +48,14 @@ class RunnerWorkflowCredentialTests(unittest.TestCase):
         self.assertIn("throw 'No project build hook was found.", workflow)
 
 
+class RuntimeStatusFailureTests(unittest.TestCase):
+    def test_jobs_api_failure_is_unknown_not_idle(self):
+        instance = object.__new__(control_center.ControlCenter)
+        responses = iter([(0, '[{"databaseId": 123}]'), (1, "API unavailable")])
+        instance._run_quiet = lambda args: next(responses)
+        self.assertEqual(instance._runtime_status("owner/repo"), ("Unknown", "Unknown"))
+
+
 class BackgroundTaskGateTests(unittest.TestCase):
     def test_duplicate_task_is_coalesced_until_completion(self):
         gate = control_center.BackgroundTaskGate()
@@ -92,6 +100,7 @@ class RunIdValidationTests(unittest.TestCase):
         self.assertFalse(control_center.is_valid_github_run_id("123?x=1"))
         self.assertFalse(control_center.is_valid_github_run_id(True))
         self.assertFalse(control_center.is_valid_github_run_id(""))
+        self.assertFalse(control_center.is_valid_github_run_id("١٢٣"))
 
 
 class OAuthRedirectValidationTests(unittest.TestCase):
