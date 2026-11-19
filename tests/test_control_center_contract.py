@@ -155,6 +155,45 @@ class AtomicSettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(loaded.refresh_seconds, 30)
 
 
+class DrivePaginationTests(unittest.TestCase):
+    class FakeRequest:
+        def __init__(self, response):
+            self.response = response
+
+        def execute(self):
+            return self.response
+
+    class FakeFiles:
+        def __init__(self):
+            self.calls = []
+
+        def list(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs.get("pageToken") is None:
+                return DrivePaginationTests.FakeRequest({
+                    "files": [{"id": "1"}],
+                    "nextPageToken": "next",
+                })
+            return DrivePaginationTests.FakeRequest({"files": [{"id": "2"}]})
+
+    class FakeDrive:
+        def __init__(self):
+            self.file_api = DrivePaginationTests.FakeFiles()
+
+        def files(self):
+            return self.file_api
+
+    def test_unbounded_drive_list_reads_all_pages(self):
+        instance = object.__new__(control_center.ControlCenter)
+        instance._drive_service = DrivePaginationTests.FakeDrive
+        drive = DrivePaginationTests.FakeDrive()
+        instance._drive_service = lambda: drive
+        result = instance._drive_list("folder-id", None)
+        self.assertEqual([item["id"] for item in result], ["1", "2"])
+        self.assertEqual(len(drive.file_api.calls), 2)
+        self.assertEqual(drive.file_api.calls[0]["pageSize"], 1000)
+
+
 class DriveCleanupResultTests(unittest.TestCase):
     class FakeDelete:
         def __init__(self, file_id, failed_ids):
