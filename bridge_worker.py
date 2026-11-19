@@ -11,11 +11,12 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import requests
@@ -122,6 +123,16 @@ def verify_artifact_zip(raw: bytes) -> dict[str, Any]:
                     result["errors"].append(f"invalid manifest line: {line[:100]}")
                     continue
                 expected, rel = parts[0].lower(), parts[1].strip().lstrip("*")
+                safe_rel = PurePosixPath(rel.replace(chr(92), "/"))
+                if (
+                    not re.fullmatch(r"[0-9a-f]{64}", expected)
+                    or safe_rel.is_absolute()
+                    or PureWindowsPath(rel).is_absolute()
+                    or ".." in safe_rel.parts
+                    or (safe_rel.parts and ":" in safe_rel.parts[0])
+                ):
+                    result["errors"].append(f"unsafe or invalid manifest entry: {rel[:120]}")
+                    continue
                 candidates = [rel, manifest_prefix + rel]
                 member = next((c for c in candidates if c in names), None)
                 if not member:
@@ -136,6 +147,17 @@ def verify_artifact_zip(raw: bytes) -> dict[str, Any]:
     except Exception as exc:
         result["errors"].append(str(exc))
         return result
+
+
+def assert_artifact_integrity(verification: dict[str, dict[str, Any]]) -> None:
+    """Fail the sync when any uploaded artifact does not pass its SHA-256 manifest."""
+    failures = [
+        f"{name}: {', '.join(details.get('errors') or ['verification failed'])}"
+        for name, details in verification.items()
+        if details.get("ok") is not True
+    ]
+    if failures:
+        raise RuntimeError("Artifact integrity verification failed: " + "; ".join(failures[:10]))
 
 
 def write_status(drive, root: Path, folder_id: str, run_id: str, status: str, extra: dict[str, Any] | None = None):
@@ -200,6 +222,8 @@ def main() -> int:
                         checksum_path = root / f"{artifact_name}-SHA256SUMS.txt"
                         checksum_path.write_bytes(zf.read(sorted(checksum_members)[0]))
                         uploaded.append(upsert_file(drive, checksum_path, folders["checksums"]))
+
+            assert_artifact_integrity(verification)
 
             for job in jobs.get("jobs", []):
                 job_id = job["id"]
