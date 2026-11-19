@@ -67,7 +67,7 @@ class OAuthRedirectValidationTests(unittest.TestCase):
         self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback#fragment"))
 
     def test_control_characters_are_rejected(self):
-        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback\\r\\n"))
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765/oauth2callback\r\n"))
 
     def test_oauth_error_is_html_escaped_and_bounded(self):
         rendered = control_center.escape_oauth_error_html("<script>alert(1)</script>")
