@@ -197,7 +197,7 @@ def is_valid_github_repo(value: object) -> bool:
 
 
 def is_valid_github_run_id(value: object) -> bool:
-    return not isinstance(value, bool) and re.fullmatch(r"\d+", str(value).strip()) is not None
+    return not isinstance(value, bool) and re.fullmatch(r"[0-9]+", str(value).strip()) is not None
 
 
 def delete_drive_candidates(drive, candidates: list[tuple[str, dict]]) -> tuple[int, int, str | None]:
