@@ -57,6 +57,7 @@ On first use:
 - Generated Drive user credentials are stored at `%APPDATA%\DriveVirtualCloudControlCenter\gdrive-user-credentials.json` by default.
 - OAuth/token JSON is not included in the package ZIP.
 - OAuth/token files are excluded by `.gitignore` and are never committed by Bootstrap.
+- Web OAuth callbacks accept only explicit-port HTTP loopback URIs (`localhost` or `127.0.0.1`); callback error text is HTML-escaped.
 - The current safe Bootstrap script does not write GitHub Secrets or send OAuth credentials to GitHub.
 - Any future transfer of Drive credentials or folder IDs to GitHub Secrets must be separately approved and performed through a dedicated secure operation.
 - Secret values are never displayed in the Control Center.
