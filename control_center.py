@@ -94,9 +94,9 @@ def build_artifact_download_path(download_dir: Path, run_id: str, artifact_id: s
     """Return a confined, deterministic download path for a GitHub artifact."""
     run_value = str(run_id).strip()
     artifact_value = str(artifact_id).strip()
-    if not re.fullmatch(r"\\d+", run_value):
+    if not re.fullmatch(r"\d+", run_value):
         raise ValueError("GitHub Actions run ID must contain digits only.")
-    if not re.fullmatch(r"\\d+", artifact_value):
+    if not re.fullmatch(r"\d+", artifact_value):
         raise ValueError("GitHub artifact ID must contain digits only.")
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(artifact_name)).strip(" .")[:80]
     if not safe_name or safe_name in {".", ".."}:
