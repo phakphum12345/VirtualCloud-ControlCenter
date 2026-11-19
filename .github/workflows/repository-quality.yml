@@ -13,6 +13,8 @@ on:
       - '*.yml'
       - '**/*.yaml'
       - '*.yaml'
+      - '**/*.md'
+      - '*.md'
       - requirements*.txt
       - .github/workflows/repository-quality.yml
   pull_request:
@@ -27,6 +29,8 @@ on:
       - '*.yml'
       - '**/*.yaml'
       - '*.yaml'
+      - '**/*.md'
+      - '*.md'
       - requirements*.txt
       - .github/workflows/repository-quality.yml
   workflow_dispatch:
@@ -77,3 +81,11 @@ jobs:
       - name: Parse and audit with PowerShell 7
         shell: pwsh
         run: ./tests/bootstrap-control-plane-static-audit.ps1
+
+      - name: Parse all PowerShell scripts with Windows PowerShell 5.1
+        shell: powershell
+        run: ./tests/powershell-parse-all.ps1
+
+      - name: Parse all PowerShell scripts with PowerShell 7
+        shell: pwsh
+        run: ./tests/powershell-parse-all.ps1
