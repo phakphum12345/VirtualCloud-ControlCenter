@@ -31,6 +31,12 @@ class BootstrapCommandContractTests(unittest.TestCase):
         self.assertNotIn("-SkipSecrets", command)
 
 
+class RunnerWorkflowCredentialTests(unittest.TestCase):
+    def test_checkout_does_not_persist_cross_repository_token(self):
+        workflow = (ROOT / "virtual-cloud-runners.yml").read_text(encoding="utf-8")
+        self.assertIn("persist-credentials: false", workflow)
+
+
 class ArtifactDirectoryVerificationTests(unittest.TestCase):
     def test_valid_manifest_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
