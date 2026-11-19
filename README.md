@@ -26,6 +26,8 @@ Desktop OAuth client is recommended. Web OAuth client is also supported when it 
 - `.github/workflows/virtual-cloud-drive-sync.yml` — automatic post-run sync plus manual retry.
 - `.github/workflows/build-control-center.yml` — builds `VirtualCloudControlCenter.exe` on `windows-latest`.
 
+Runner dispatch fails if no project build hook is present. A runner-only smoke test is available only through the explicit `allow_noop=true` workflow input and is clearly labelled as a no-op.
+
 ## Bootstrap safety contract
 
 `bootstrap-control-plane.ps1` is deliberately plan-only by default. It verifies the configured target repository and prepares a local review plan; it does not create repositories, write GitHub Secrets, stage files, commit, push, or publish workflows. The Control Center's **Prepare Safe Bootstrap Plan** action uses only the script's supported `-Repo` argument. Any future remote provisioning or secret-writing operation must be a separate, explicitly approved workflow.
