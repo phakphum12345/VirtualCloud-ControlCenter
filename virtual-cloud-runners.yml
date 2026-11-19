@@ -32,6 +32,11 @@ on:
         required: false
         default: ''
         type: string
+      allow_noop:
+        description: Allow a runner-only smoke test when no project build hook exists
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -57,6 +62,7 @@ jobs:
           repository: ${{ inputs.source_repository || github.repository }}
           ref: ${{ inputs.source_ref }}
           token: ${{ secrets.MULTI_REPO_TOKEN || github.token }}
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Prepare output
@@ -107,8 +113,11 @@ jobs:
             bash 'scripts/virtual-cloud-build.sh'
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+          elseif ('${{ inputs.allow_noop }}' -eq 'true') {
+            'Explicit no-op runner smoke test requested. No project build was performed.' | Set-Content -Encoding utf8 'virtual-cloud-output/build-result.txt'
+          }
           else {
-            'Windows runner proof completed. No project build hook was present.' | Set-Content -Encoding utf8 'virtual-cloud-output/build-result.txt'
+            throw 'No project build hook was found. Add scripts/virtual-cloud-build.ps1, .py, or .sh, or explicitly set allow_noop=true for a runner-only smoke test.'
           }
 
       - name: Run macOS build hook
@@ -120,8 +129,11 @@ jobs:
             bash scripts/virtual-cloud-build.sh
           elif [ -f scripts/virtual-cloud-build.py ]; then
             python scripts/virtual-cloud-build.py
+          elif [ "${{ inputs.allow_noop }}" = "true" ]; then
+            echo "Explicit no-op runner smoke test requested. No project build was performed." > virtual-cloud-output/build-result.txt
           else
-            echo "macOS runner proof completed. No project build hook was present." > virtual-cloud-output/build-result.txt
+            echo "No project build hook was found. Add scripts/virtual-cloud-build.sh or .py, or explicitly set allow_noop=true for a runner-only smoke test." >&2
+            exit 1
           fi
 
       - name: Create SHA-256 manifest
