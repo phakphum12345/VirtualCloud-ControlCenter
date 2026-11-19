@@ -57,7 +57,8 @@ On first use:
 - Generated Drive user credentials are stored at `%APPDATA%\DriveVirtualCloudControlCenter\gdrive-user-credentials.json` by default.
 - OAuth/token JSON is not included in the package ZIP.
 - OAuth/token files are excluded by `.gitignore` and are never committed by Bootstrap.
-- GitHub receives the generated Drive user-credential JSON only through repository Secrets.
+- The current safe Bootstrap script does not write GitHub Secrets or send OAuth credentials to GitHub.
+- Any future transfer of Drive credentials or folder IDs to GitHub Secrets must be separately approved and performed through a dedicated secure operation.
 - Secret values are never displayed in the Control Center.
 
 ## Existing capabilities
@@ -83,8 +84,9 @@ On first use:
 5. Enable Google Drive API in one Cloud project.
 6. Create/download the OAuth client JSON from that same project.
 7. Authorize Drive in the browser.
-8. When `Drive API` and `Drive OAuth` are Ready, Bootstrap creates/updates the private Control Plane repository and writes Drive folder IDs / OAuth user credentials to GitHub Secrets.
-9. Dispatch a Windows/macOS job and verify Artifact -> checksum -> Drive Sync -> receipt.
+8. When `Drive API` and `Drive OAuth` are Ready, use **Prepare Safe Bootstrap Plan** to verify the configured target repository and review the local plan. This safe Bootstrap script does not create/update a remote repository, publish workflows, commit, push, or write GitHub Secrets.
+9. Provisioning a repository or configuring Drive folder Secrets is a separate privileged operation and is not performed by the safe Bootstrap action.
+10. Dispatch a Windows/macOS job and verify Artifact -> checksum -> Drive Sync -> receipt.
 
 
 ## Bound Google Cloud project
