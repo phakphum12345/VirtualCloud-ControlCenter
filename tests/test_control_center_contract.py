@@ -138,7 +138,7 @@ class AtomicSettingsPersistenceTests(unittest.TestCase):
             target = Path(tmp) / "config.json"
             original = "{invalid-json"
             target.write_text(original, encoding="utf-8")
-            with unittest.mock.patch.object(control_center, "CONFIG_PATH", target):
+            with patch.object(control_center, "CONFIG_PATH", target):
                 loaded = control_center.AppConfig.load()
             self.assertEqual(loaded.repo, control_center.DEFAULT_REPO)
             self.assertEqual(target.read_text(encoding="utf-8"), original)
