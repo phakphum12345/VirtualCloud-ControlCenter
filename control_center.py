@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import queue
 import secrets
 import shutil
@@ -22,7 +23,7 @@ import time
 import webbrowser
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 import tkinter as tk
@@ -73,6 +74,20 @@ REQUIRED_CONTROL_FILES = [
     "tools/virtual-cloud/bridge_worker.py",
     "tools/virtual-cloud/requirements.txt",
 ]
+
+
+def build_bootstrap_command(script: Path, repo: str, powershell_executable: str = "powershell.exe") -> list[str]:
+    """Build arguments supported by the current plan-only bootstrap script."""
+    return [
+        powershell_executable,
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(script),
+        "-Repo",
+        repo,
+    ]
 
 
 def app_data_dir() -> Path:
@@ -350,7 +365,7 @@ class ControlCenter(tk.Tk):
             ("1. Enable Google Drive API", self.open_drive_api_enable, False),
             ("2. Create / Manage OAuth Client", self.open_google_oauth_setup, False),
             ("3. Authorize Google Drive", self.authorize_drive, False),
-            ("4. Bootstrap / Update Control Plane", self.bootstrap, False),
+            ("4. Prepare Safe Bootstrap Plan (local only)", self.bootstrap, False),
             ("Check GitHub Login", self.check_github_login, False),
             ("Build EXE", self.build_exe_on_github, False),
             ("Open Package", self.open_package_folder, False),
@@ -944,11 +959,11 @@ class ControlCenter(tk.Tk):
         elif h.get("OAuth Client") != "Ready": msg = "Next: click 1. Enable Google Drive API, then 2. Create / Manage OAuth Client and import the downloaded JSON."
         elif h.get("Drive OAuth") not in {"Ready", "Connected"}: msg = "Next: ensure Drive API is enabled for the OAuth project, then click 3. Authorize Google Drive and approve access in the browser."
         elif h.get("Drive API") != "Ready": msg = "Drive API is not verified. Click 1. Enable Google Drive API, click Enable in Google Cloud, then Refresh or authorize again."
-        elif h.get("Control repo") != "Ready": msg = "Next: click 4. Bootstrap / Update Control Plane to create the private control repository."
-        elif h.get("GitHub Workflows") != "Ready": msg = "Next: run Bootstrap / Update again to publish all required workflows."
-        elif h.get("GitHub Secrets") != "Ready": msg = "Next: run Bootstrap / Update with Drive OAuth configured to set all Drive folder secrets."
+        elif h.get("Control repo") != "Ready": msg = "The configured Control Plane repository is not accessible. Review the repository name and GitHub permissions; safe Bootstrap only prepares a local plan and never creates a repository."
+        elif h.get("GitHub Workflows") != "Ready": msg = "Required Control Plane workflows are missing or unavailable. Review the local bootstrap plan; this safe mode does not publish files."
+        elif h.get("GitHub Secrets") != "Ready": msg = "Some Drive folder secrets are not configured. Safe Bootstrap never writes GitHub Secrets; configure them only through a separately approved secure process."
         elif h.get("Drive Sync") != "Ready": msg = "Drive Sync is not ready. Refresh and inspect Console / Sync History."
-        else: msg = "Setup complete. Runtime status is derived from actual GitHub jobs; Idle means no job is currently consuming a runner."
+        else: msg = "Core checks are ready. Bootstrap remains plan-only; no repository, workflow, or secret provisioning has been performed."
         self.setup_hint_var.set(msg)
 
     def refresh_health(self):
@@ -1191,16 +1206,24 @@ class ControlCenter(tk.Tk):
 
     def bootstrap(self):
         script = self.package_dir() / "bootstrap-control-plane.ps1"
-        if not script.exists(): messagebox.showerror(APP_NAME, f"Missing: {script}"); return
-        cred = self.cred_var.get().strip()
-        args = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Repo", self.repo()]
-        if cred and Path(cred).exists(): args += ["-DriveUserCredentialsJsonPath", cred]
-        else:
-            if not messagebox.askyesno(APP_NAME, "Drive OAuth is not configured. Create/update the repo without Drive secrets?"): return
-            args.append("-SkipSecrets")
-        self.notebook.select(self.logs_tab); self.audit("bootstrap-control-plane", self.repo())
+        if not script.exists():
+            messagebox.showerror(APP_NAME, f"Missing: {script}")
+            return
+        if not messagebox.askyesno(
+            APP_NAME,
+            "Prepare a safe, plan-only bootstrap check for the configured target repository?\n\n"
+            "This reads repository metadata and may clone it into a temporary local workspace. "
+            "It does not create or modify a remote repository, publish workflows, commit, push, "
+            "or read/write GitHub Secrets. Continue?",
+        ):
+            return
+        args = build_bootstrap_command(script, self.repo())
+        self.notebook.select(self.logs_tab)
+        self.status_var.set("Preparing a local-only bootstrap plan…")
+        self.audit("bootstrap-plan-only", self.repo())
         def done(c, o):
-            self.audit("bootstrap-control-plane", self.repo(), "success" if c == 0 else "failed", o[-700:]); self.after(0, self.refresh_all)
+            self.audit("bootstrap-plan-only", self.repo(), "success" if c == 0 else "failed", o[-700:])
+            self.after(0, self.refresh_all)
         self.runner.run_async(args, cwd=self.package_dir(), callback=done)
 
     def build_exe_on_github(self):
@@ -1464,20 +1487,53 @@ class ControlCenter(tk.Tk):
 
     @staticmethod
     def _verify_directory(root: Path) -> tuple[bool, str]:
-        if not root.exists(): return False, f"Download directory not found: {root}"
+        if not root.exists():
+            return False, f"Download directory not found: {root}"
         sums = list(root.rglob("SHA256SUMS.txt"))
-        if not sums: return False, "SHA256SUMS.txt not found"
-        base = sums[0].parent; errors = [] ; checked = 0
+        if not sums:
+            return False, "SHA256SUMS.txt not found"
+        base = sums[0].parent
+        errors = []
+        checked = 0
+        try:
+            resolved_base = base.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            return False, f"Invalid checksum directory: {exc}"
         for line in sums[0].read_text(encoding="utf-8", errors="replace").splitlines():
-            if not line.strip(): continue
+            if not line.strip():
+                continue
             parts = line.split(None, 1)
-            if len(parts) != 2: continue
-            expected, rel = parts[0], parts[1].strip().lstrip("*")
-            p = base / rel
-            if not p.exists(): errors.append(f"missing {rel}"); continue
-            actual = hashlib.sha256(p.read_bytes()).hexdigest(); checked += 1
-            if actual.lower() != expected.lower(): errors.append(f"mismatch {rel}")
-        return (not errors and checked > 0), (f"Verified {checked} files" if not errors and checked > 0 else "; ".join(errors[:10]) or "No checksum entries")
+            if len(parts) != 2:
+                errors.append("invalid checksum manifest line")
+                continue
+            expected, rel = parts[0].lower(), parts[1].strip().lstrip("*")
+            posix_rel = PurePosixPath(rel.replace(chr(92), "/"))
+            if (
+                not re.fullmatch(r"[0-9a-f]{64}", expected)
+                or posix_rel.is_absolute()
+                or PureWindowsPath(rel).is_absolute()
+                or ".." in posix_rel.parts
+                or (posix_rel.parts and ":" in posix_rel.parts[0])
+            ):
+                errors.append(f"unsafe or invalid manifest entry: {rel[:120]}")
+                continue
+            candidate = base.joinpath(*posix_rel.parts)
+            try:
+                resolved_candidate = candidate.resolve(strict=True)
+                resolved_candidate.relative_to(resolved_base)
+            except (OSError, RuntimeError, ValueError):
+                errors.append(f"missing or out-of-directory file: {rel}")
+                continue
+            if not resolved_candidate.is_file():
+                errors.append(f"not a regular file: {rel}")
+                continue
+            actual = hashlib.sha256(resolved_candidate.read_bytes()).hexdigest()
+            checked += 1
+            if actual != expected:
+                errors.append(f"mismatch {rel}")
+        ok = not errors and checked > 0
+        detail = f"Verified {checked} files" if ok else "; ".join(errors[:10]) or "No checksum entries"
+        return ok, detail
 
     def retry_drive_sync_from_artifact(self):
         rid = self.artifact_run_var.get().strip()
