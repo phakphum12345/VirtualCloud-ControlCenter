@@ -45,6 +45,21 @@ class RunnerWorkflowCredentialTests(unittest.TestCase):
         self.assertIn("throw 'No project build hook was found.", workflow)
 
 
+class ArtifactDownloadPathTests(unittest.TestCase):
+    def test_artifact_name_cannot_escape_download_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            path = control_center.build_artifact_download_path(base, "12345", "67890", "../../outside/evil")
+            self.assertEqual(path.resolve().parent.parent, base.resolve())
+            self.assertNotIn("..", path.parts)
+            self.assertTrue(path.name.endswith("-67890"))
+
+    def test_non_numeric_run_id_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "run ID"):
+                control_center.build_artifact_download_path(Path(tmp), "../123", "67890", "bundle")
+
+
 class ArtifactDirectoryVerificationTests(unittest.TestCase):
     def test_valid_manifest_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
