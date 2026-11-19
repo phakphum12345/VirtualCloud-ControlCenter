@@ -27,7 +27,7 @@
 
 - The application cannot and should not silently click Google's **Enable** or **Allow** controls on behalf of the account owner.
 - OAuth client/token JSON stays out of the package and Git repository.
-- Drive credentials remain in user AppData and GitHub Secrets only.
+- Drive credentials remain in user AppData; the current safe Bootstrap does not write GitHub Secrets.
 - Health checks reveal status only; they never display secret values.
 
 ## Validation performed in the v3.3 release cycle
