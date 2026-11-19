@@ -57,6 +57,7 @@ jobs:
           repository: ${{ inputs.source_repository || github.repository }}
           ref: ${{ inputs.source_ref }}
           token: ${{ secrets.MULTI_REPO_TOKEN || github.token }}
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Prepare output
