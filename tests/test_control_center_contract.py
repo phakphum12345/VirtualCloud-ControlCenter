@@ -127,6 +127,8 @@ class AtomicSettingsPersistenceTests(unittest.TestCase):
             "download_dir": "",
         })
         self.assertEqual(config.repo, control_center.DEFAULT_REPO)
+        self.assertFalse(control_center.is_valid_github_repo("owner/.."))
+        self.assertFalse(control_center.is_valid_github_repo("../repository"))
         self.assertTrue(config.auto_refresh)
         self.assertFalse(config.notifications)
         self.assertEqual(config.refresh_seconds, 3600)
