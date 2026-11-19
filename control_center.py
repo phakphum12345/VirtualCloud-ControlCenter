@@ -23,6 +23,7 @@ import time
 import webbrowser
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from html import escape as html_escape
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -108,6 +109,29 @@ def build_artifact_download_path(download_dir: Path, run_id: str, artifact_id: s
     except ValueError as exc:
         raise ValueError("Artifact download path escapes the configured download directory.") from exc
     return candidate
+
+
+def is_safe_local_redirect_uri(uri: str) -> bool:
+    """Accept only explicit-port HTTP callbacks on the local machine."""
+    if not isinstance(uri, str) or uri != uri.strip() or "\\r" in uri or "\\n" in uri:
+        return False
+    try:
+        parsed = urlparse(uri)
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+    except ValueError:
+        return False
+    return bool(
+        parsed.scheme.lower() == "http"
+        and host in {"localhost", "127.0.0.1"}
+        and parsed.username is None
+        and parsed.password is None
+        and port is not None
+        and 1 <= port <= 65535
+        and parsed.path.startswith("/")
+        and not parsed.query
+        and not parsed.fragment
+    )
 
 
 def app_data_dir() -> Path:
@@ -890,7 +914,7 @@ class ControlCenter(tk.Tk):
             )
         if "web" in data:
             redirects = section.get("redirect_uris") or []
-            local = [u for u in redirects if str(u).startswith("http://localhost:") or str(u).startswith("http://127.0.0.1:")]
+            local = [u for u in redirects if is_safe_local_redirect_uri(str(u))]
             if not local:
                 raise ValueError(
                     "Web OAuth client needs an Authorized redirect URI on localhost, for example "
@@ -1767,10 +1791,7 @@ def authorize_google_drive(client_file: str, output_file: str) -> int:
         elif "web" in data:
             cfg = data["web"]
             redirects = [str(x) for x in (cfg.get("redirect_uris") or [])]
-            local_redirects = [
-                u for u in redirects
-                if u.startswith("http://localhost:") or u.startswith("http://127.0.0.1:")
-            ]
+            local_redirects = [u for u in redirects if is_safe_local_redirect_uri(u)]
             if not local_redirects:
                 raise RuntimeError(
                     "Web OAuth client has no localhost Authorized redirect URI. Add one in Google Cloud, e.g. "
@@ -1778,12 +1799,12 @@ def authorize_google_drive(client_file: str, output_file: str) -> int:
                 )
 
             redirect_uri = WEB_OAUTH_DEFAULT_REDIRECT if WEB_OAUTH_DEFAULT_REDIRECT in local_redirects else local_redirects[0]
+            if not is_safe_local_redirect_uri(redirect_uri):
+                raise RuntimeError("Web OAuth redirect URI must be plain HTTP on localhost or 127.0.0.1 with an explicit port and no user-info, query, or fragment.")
             parsed_redirect = urlparse(redirect_uri)
             host = parsed_redirect.hostname or "localhost"
             port = parsed_redirect.port
             callback_path = parsed_redirect.path or "/oauth2callback"
-            if port is None:
-                raise RuntimeError("The localhost redirect URI must include an explicit port, e.g. :8765.")
 
             flow = Flow.from_client_secrets_file(str(client_path), scopes=scopes, redirect_uri=redirect_uri)
             authorization_url, expected_state = flow.authorization_url(
@@ -1813,14 +1834,18 @@ def authorize_google_drive(client_file: str, output_file: str) -> int:
                     else:
                         result["authorization_response"] = redirect_uri.split(callback_path, 1)[0] + self.path
 
+                    error_html = html_escape(str(result["error"])[:1000]) if result["error"] else ""
                     body = (
                         "<html><body style='font-family:Segoe UI,Arial;padding:32px'>"
                         "<h2>Virtual Cloud Control Center</h2>"
-                        + ("<p>Google Drive permission received. You can close this browser tab.</p>" if not result["error"] else f"<p>Authorization failed: {result['error']}</p>")
+                        + ("<p>Google Drive permission received. You can close this browser tab.</p>" if not error_html else f"<p>Authorization failed: {error_html}</p>")
                         + "</body></html>"
                     ).encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Cache-Control", "no-store")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
