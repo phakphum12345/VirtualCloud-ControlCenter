@@ -98,6 +98,82 @@ class ArtifactDownloadPathTests(unittest.TestCase):
                 control_center.build_artifact_download_path(Path(tmp), "../123", "67890", "bundle")
 
 
+class AtomicSettingsPersistenceTests(unittest.TestCase):
+    def test_atomic_write_replaces_file_with_complete_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "config.json"
+            target.write_text('{"old": true}', encoding="utf-8")
+            control_center.atomic_write_text(target, '{"new": true}')
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"new": true}')
+
+    def test_failed_replace_preserves_previous_file_and_cleans_temp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "config.json"
+            target.write_text('{"preserve": true}', encoding="utf-8")
+            with unittest.mock.patch("control_center.os.replace", side_effect=OSError("replace failed")):
+                with self.assertRaisesRegex(OSError, "replace failed"):
+                    control_center.atomic_write_text(target, '{"new": true}')
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"preserve": true}')
+            self.assertEqual(list(Path(tmp).glob(".config.json.*.tmp")), [])
+
+    def test_config_mapping_rejects_invalid_types_and_clamps_ranges(self):
+        config = control_center.AppConfig.from_mapping({
+            "repo": [],
+            "auto_refresh": "false",
+            "notifications": False,
+            "refresh_seconds": 999999,
+            "retention_days": -10,
+            "download_dir": "",
+        })
+        self.assertEqual(config.repo, control_center.DEFAULT_REPO)
+        self.assertTrue(config.auto_refresh)
+        self.assertFalse(config.notifications)
+        self.assertEqual(config.refresh_seconds, 3600)
+        self.assertEqual(config.retention_days, 1)
+        self.assertEqual(config.download_dir, control_center.default_download_dir())
+
+    def test_config_load_preserves_corrupt_source_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "config.json"
+            original = "{invalid-json"
+            target.write_text(original, encoding="utf-8")
+            with unittest.mock.patch.object(control_center, "CONFIG_PATH", target):
+                loaded = control_center.AppConfig.load()
+            self.assertEqual(loaded.repo, control_center.DEFAULT_REPO)
+            self.assertEqual(target.read_text(encoding="utf-8"), original)
+
+
+class DriveCleanupResultTests(unittest.TestCase):
+    class FakeDelete:
+        def __init__(self, file_id, failed_ids):
+            self.file_id = file_id
+            self.failed_ids = failed_ids
+
+        def execute(self):
+            if self.file_id in self.failed_ids:
+                raise PermissionError("denied")
+
+    class FakeDrive:
+        def __init__(self, failed_ids=()):
+            self.failed_ids = set(failed_ids)
+
+        def files(self):
+            return self
+
+        def delete(self, fileId):
+            return DriveCleanupResultTests.FakeDelete(fileId, self.failed_ids)
+
+    def test_cleanup_reports_partial_failures(self):
+        drive = self.FakeDrive(failed_ids={"2"})
+        candidates = [("logs", {"id": "1"}), ("logs", {"id": "2"})]
+        removed, failed, first_error = control_center.delete_drive_candidates(drive, candidates)
+        self.assertEqual((removed, failed, first_error), (1, 1, "PermissionError"))
+
+    def test_cleanup_empty_list_is_successful_noop(self):
+        removed, failed, first_error = control_center.delete_drive_candidates(self.FakeDrive(), [])
+        self.assertEqual((removed, failed, first_error), (0, 0, None))
+
+
 class ArtifactDirectoryVerificationTests(unittest.TestCase):
     def test_valid_manifest_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
