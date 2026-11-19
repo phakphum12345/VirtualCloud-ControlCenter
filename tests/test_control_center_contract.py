@@ -2,6 +2,7 @@ import hashlib
 import re
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import control_center
@@ -110,7 +111,7 @@ class AtomicSettingsPersistenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "config.json"
             target.write_text('{"preserve": true}', encoding="utf-8")
-            with unittest.mock.patch("control_center.os.replace", side_effect=OSError("replace failed")):
+            with patch("control_center.os.replace", side_effect=OSError("replace failed")):
                 with self.assertRaisesRegex(OSError, "replace failed"):
                     control_center.atomic_write_text(target, '{"new": true}')
             self.assertEqual(target.read_text(encoding="utf-8"), '{"preserve": true}')
@@ -141,6 +142,15 @@ class AtomicSettingsPersistenceTests(unittest.TestCase):
                 loaded = control_center.AppConfig.load()
             self.assertEqual(loaded.repo, control_center.DEFAULT_REPO)
             self.assertEqual(target.read_text(encoding="utf-8"), original)
+
+    def test_app_config_save_and_load_round_trip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "config.json"
+            with patch.object(control_center, "CONFIG_PATH", target):
+                control_center.AppConfig(repo="owner/repository", refresh_seconds=30).save()
+                loaded = control_center.AppConfig.load()
+            self.assertEqual(loaded.repo, "owner/repository")
+            self.assertEqual(loaded.refresh_seconds, 30)
 
 
 class DriveCleanupResultTests(unittest.TestCase):
