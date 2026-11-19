@@ -61,6 +61,8 @@ On first use:
 - The current safe Bootstrap script does not write GitHub Secrets or send OAuth credentials to GitHub.
 - Any future transfer of Drive credentials or folder IDs to GitHub Secrets must be separately approved and performed through a dedicated secure operation.
 - Secret values are never displayed in the Control Center.
+- Local settings, OAuth client JSON, and generated OAuth credentials are written through atomic file replacement to avoid partially written files.
+- Drive cleanup reports partial or failed deletions explicitly; failed deletions are never counted as successful.
 
 ## Existing capabilities
 
