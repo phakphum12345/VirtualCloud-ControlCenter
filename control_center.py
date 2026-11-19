@@ -1033,18 +1033,24 @@ class ControlCenter(tk.Tk):
         except Exception as exc:
             return False, f"OAuth error: {str(exc)[:60]}"
 
-    def _drive_list(self, folder_id: str, page_size: int = 200) -> list[dict]:
+    def _drive_list(self, folder_id: str, page_size: int | None = 200) -> list[dict]:
         drive = self._drive_service()
-        out: list[dict] = []; token = None
+        limit = min(1000, max(1, int(page_size))) if page_size is not None else None
+        out: list[dict] = []
+        token = None
         while True:
             res = drive.files().list(
                 q=f"'{folder_id}' in parents and trashed=false",
                 fields="nextPageToken,files(id,name,size,createdTime,modifiedTime,webViewLink,mimeType)",
-                pageSize=min(1000, page_size), pageToken=token, orderBy="createdTime desc",
+                pageSize=1000 if limit is None else limit,
+                pageToken=token,
+                orderBy="createdTime desc",
             ).execute()
-            out.extend(res.get("files", [])); token = res.get("nextPageToken")
-            if not token or len(out) >= page_size: break
-        return out[:page_size]
+            out.extend(res.get("files", []))
+            token = res.get("nextPageToken")
+            if not token or (limit is not None and len(out) >= limit):
+                break
+        return out if limit is None else out[:limit]
 
     def _drive_read_json(self, file_id: str) -> dict:
         drive = self._drive_service()
@@ -1800,7 +1806,7 @@ class ControlCenter(tk.Tk):
             try:
                 drive = self._drive_service()
                 for label, fid in folders.items():
-                    for f in self._drive_list(fid, 1000):
+                    for f in self._drive_list(fid, None):
                         dt = self._parse_dt(f.get("createdTime"))
                         if dt and dt.timestamp() < cutoff: candidates.append((label, f))
                 if not delete:
