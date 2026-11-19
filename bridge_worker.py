@@ -211,6 +211,8 @@ def main() -> int:
                 artifact_names.append(artifact_name)
                 raw = download_bytes(session, f"{API}/repos/{repo}/actions/artifacts/{artifact_id}/zip")
                 verification[artifact_name] = verify_artifact_zip(raw)
+                if verification[artifact_name].get("ok") is not True:
+                    continue
 
                 zip_path = root / f"{artifact_name}.zip"
                 zip_path.write_bytes(raw)
@@ -223,8 +225,6 @@ def main() -> int:
                         checksum_path.write_bytes(zf.read(sorted(checksum_members)[0]))
                         uploaded.append(upsert_file(drive, checksum_path, folders["checksums"]))
 
-            assert_artifact_integrity(verification)
-
             for job in jobs.get("jobs", []):
                 job_id = job["id"]
                 job_name = str(job.get("name", job_id)).replace("/", "-").replace("\\", "-")
@@ -236,6 +236,8 @@ def main() -> int:
                 log_path = root / f"job-{job_id}-{job_name}.log"
                 log_path.write_bytes(log_bytes)
                 uploaded.append(upsert_file(drive, log_path, folders["logs"]))
+
+            assert_artifact_integrity(verification)
 
             receipt = {
                 "ok": True,
