@@ -90,6 +90,26 @@ def build_bootstrap_command(script: Path, repo: str, powershell_executable: str 
     ]
 
 
+def build_artifact_download_path(download_dir: Path, run_id: str, artifact_id: str, artifact_name: str) -> Path:
+    """Return a confined, deterministic download path for a GitHub artifact."""
+    run_value = str(run_id).strip()
+    artifact_value = str(artifact_id).strip()
+    if not re.fullmatch(r"\\d+", run_value):
+        raise ValueError("GitHub Actions run ID must contain digits only.")
+    if not re.fullmatch(r"\\d+", artifact_value):
+        raise ValueError("GitHub artifact ID must contain digits only.")
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(artifact_name)).strip(" .")[:80]
+    if not safe_name or safe_name in {".", ".."}:
+        safe_name = "artifact"
+    base = Path(download_dir).expanduser().resolve()
+    candidate = base / f"run-{run_value}" / f"{safe_name}-{artifact_value}"
+    try:
+        candidate.resolve(strict=False).relative_to(base)
+    except ValueError as exc:
+        raise ValueError("Artifact download path escapes the configured download directory.") from exc
+    return candidate
+
+
 def app_data_dir() -> Path:
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", Path.home()))
@@ -1463,7 +1483,11 @@ class ControlCenter(tk.Tk):
         aid, art = self._selected_artifact()
         if not aid: return
         rid = self.artifact_run_var.get().strip(); name = str(art.get("name") or aid)
-        root = Path(self.download_var.get().strip() or default_download_dir()) / f"run-{rid}" / name
+        try:
+            root = build_artifact_download_path(Path(self.download_var.get().strip() or default_download_dir()), rid, aid, name)
+        except ValueError as exc:
+            messagebox.showerror(APP_NAME, str(exc))
+            return
         root.mkdir(parents=True, exist_ok=True)
         self.notebook.select(self.logs_tab); self.audit("download-artifact", f"{rid}:{name}")
         args = ["gh", "run", "download", rid, "--repo", self.repo(), "-n", name, "-D", str(root)]
@@ -1480,7 +1504,11 @@ class ControlCenter(tk.Tk):
         aid, art = self._selected_artifact()
         if not aid: return
         rid = self.artifact_run_var.get().strip(); name = str(art.get("name") or aid)
-        root = Path(self.download_var.get().strip() or default_download_dir()) / f"run-{rid}" / name
+        try:
+            root = build_artifact_download_path(Path(self.download_var.get().strip() or default_download_dir()), rid, aid, name)
+        except ValueError as exc:
+            messagebox.showerror(APP_NAME, str(exc))
+            return
         ok, detail = self._verify_directory(root)
         messagebox.showinfo(APP_NAME, f"Integrity {'verified' if ok else 'not verified'}\n\n{detail}")
         self.audit("verify-artifact", f"{rid}:{name}", "success" if ok else "failed", detail)
