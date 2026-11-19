@@ -75,6 +75,11 @@ class OAuthRedirectValidationTests(unittest.TestCase):
         self.assertLessEqual(len(control_center.escape_oauth_error_html("x" * 5000)), 1000)
 
 
+class OAuthRedirectBackslashTests(unittest.TestCase):
+    def test_backslash_url_confusion_is_rejected(self):
+        self.assertFalse(control_center.is_safe_local_redirect_uri("http://localhost:8765\\\\@attacker.example/oauth2callback"))
+
+
 class ArtifactDownloadPathTests(unittest.TestCase):
     def test_artifact_name_cannot_escape_download_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
