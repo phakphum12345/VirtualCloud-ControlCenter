@@ -25,6 +25,7 @@ $checks = [ordered]@{
     'Repository identity is verified' = ($source -match 'nameWithOwner' -and $source -match 'Repository identity mismatch')
     'Remote branch is checked before and after planning' = ([regex]::Matches($source, 'ls-remote').Count -ge 2)
     'Reparse points are rejected' = ($source -match 'Assert-NoReparsePointInPath' -and $source -match 'FileAttributes\]::ReparsePoint')
+    'Cleanup rejects nested reparse points' = ($source -match 'Assert-NoReparsePointTree' -and $source -match 'Nested reparse point prevents safe workspace cleanup')
     'Target paths are constrained' = ($source -match 'Assert-RelativeTargetPath')
     'Source hashes are revalidated' = ($source -match 'Source changed after planning')
     'Target hashes are revalidated' = ($source -match 'Target changed after planning' -and $source -match 'Target appeared after planning')

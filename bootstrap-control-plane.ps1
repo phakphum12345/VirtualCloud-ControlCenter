@@ -70,6 +70,15 @@ function Assert-RelativeTargetPath([string]$Value) {
     }
 }
 
+function Assert-NoReparsePointTree([string]$Root) {
+    $items = @(Get-ChildItem -LiteralPath $Root -Force -Recurse -ErrorAction Stop)
+    foreach ($item in $items) {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Stop-Bootstrap "Nested reparse point prevents safe workspace cleanup: $($item.FullName)"
+        }
+    }
+}
+
 function Get-FileSha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash
 }
@@ -315,6 +324,7 @@ finally {
     if (-not $preserveWorkspace -and (Test-Path -LiteralPath $workspace -PathType Container)) {
         try {
             Assert-NoReparsePointInPath -Path $workspace -BoundaryRoot $tempRoot
+            Assert-NoReparsePointTree -Root $workspace
             Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction Stop
         }
         catch { Write-Warning "Workspace cleanup skipped: $($_.Exception.Message)" }
