@@ -13,6 +13,8 @@ on:
       - requirements*.txt
       - virtual-cloud-runners.yml
       - .github/workflows/repository-quality.yml
+      - '**/*.md'
+      - '*.md'
       - .github/workflows/bootstrap-safety-audit.yml
   pull_request:
     branches:
@@ -25,6 +27,8 @@ on:
       - requirements*.txt
       - virtual-cloud-runners.yml
       - .github/workflows/repository-quality.yml
+      - '**/*.md'
+      - '*.md'
       - .github/workflows/bootstrap-safety-audit.yml
   workflow_dispatch:
 
