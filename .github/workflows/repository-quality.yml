@@ -61,6 +61,10 @@ jobs:
         shell: pwsh
         run: python -m unittest discover -s tests -p 'test_*.py' -v
 
+      - name: Build Windows Control Center
+        shell: pwsh
+        run: ./build-control-center.ps1 -Python python
+
       - name: Parse all YAML templates
         shell: pwsh
         run: |
