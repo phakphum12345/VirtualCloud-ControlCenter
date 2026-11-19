@@ -176,7 +176,7 @@ def atomic_write_text(path: Path, content: str) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\\n") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
@@ -941,7 +941,7 @@ class ControlCenter(tk.Tk):
                 raise ValueError("Settings file must contain a JSON object.")
             current = asdict(self.config_data)
             current.update({k: v for k, v in data.items() if k in current})
-            self.config_data = AppConfig.from_mapping(current, base=self.config_data)
+            self.config_data = AppConfig.from_mapping(current)
             self.config_data.save()
             self.audit("import-settings", path, "success")
             messagebox.showinfo(APP_NAME, "Settings imported. Reopen the Control Center to apply every UI field.")
