@@ -26,6 +26,11 @@ from googleapiclient.http import MediaFileUpload
 
 API = "https://api.github.com"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
+MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
+MAX_ARTIFACT_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
+MAX_ARTIFACT_MEMBERS = 10_000
+MAX_CHECKSUM_MANIFEST_BYTES = 4 * 1024 * 1024
+DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 def now_iso() -> str:
@@ -63,9 +68,28 @@ def get_json(session: requests.Session, url: str) -> Any:
 
 
 def download_bytes(session: requests.Session, url: str) -> bytes:
-    response = session.get(url, timeout=180, allow_redirects=True)
-    response.raise_for_status()
-    return response.content
+    """Download a response with a strict byte ceiling and bounded memory use."""
+    response = session.get(url, timeout=180, allow_redirects=True, stream=True)
+    try:
+        response.raise_for_status()
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_DOWNLOAD_BYTES:
+                    raise RuntimeError("download exceeds the 512 MiB response limit")
+            except ValueError:
+                pass
+
+        payload = bytearray()
+        for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+            if not chunk:
+                continue
+            if len(payload) + len(chunk) > MAX_DOWNLOAD_BYTES:
+                raise RuntimeError("download exceeds the 512 MiB response limit")
+            payload.extend(chunk)
+        return bytes(payload)
+    finally:
+        response.close()
 
 
 def drive_client(user_credentials_json: str):
@@ -126,8 +150,19 @@ def write_json(path: Path, data: Any) -> None:
 def verify_artifact_zip(raw: bytes) -> dict[str, Any]:
     result: dict[str, Any] = {"ok": False, "checked": 0, "errors": []}
     try:
+        if len(raw) > MAX_DOWNLOAD_BYTES:
+            result["errors"].append("artifact ZIP exceeds the 512 MiB download limit")
+            return result
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-            member_names = zf.namelist()
+            infos = zf.infolist()
+            if len(infos) > MAX_ARTIFACT_MEMBERS:
+                result["errors"].append(f"artifact ZIP contains more than {MAX_ARTIFACT_MEMBERS} members")
+                return result
+            declared_uncompressed = sum(info.file_size for info in infos)
+            if declared_uncompressed > MAX_ARTIFACT_UNCOMPRESSED_BYTES:
+                result["errors"].append("artifact ZIP exceeds the 1 GiB uncompressed size limit")
+                return result
+            member_names = [info.filename for info in infos]
             if len(member_names) != len(set(member_names)):
                 result["errors"].append("duplicate ZIP member names")
                 return result
@@ -140,8 +175,18 @@ def verify_artifact_zip(raw: bytes) -> dict[str, Any]:
                 result["errors"].append("multiple SHA256SUMS.txt manifests")
                 return result
             manifest_name = checksum_members[0]
-            manifest = zf.read(manifest_name).decode("utf-8", errors="replace")
+            manifest_info = zf.getinfo(manifest_name)
+            if manifest_info.file_size > MAX_CHECKSUM_MANIFEST_BYTES:
+                result["errors"].append("SHA256SUMS.txt exceeds the 4 MiB manifest limit")
+                return result
+            with zf.open(manifest_info) as manifest_stream:
+                manifest_bytes = manifest_stream.read(MAX_CHECKSUM_MANIFEST_BYTES + 1)
+            if len(manifest_bytes) > MAX_CHECKSUM_MANIFEST_BYTES:
+                result["errors"].append("SHA256SUMS.txt exceeds the 4 MiB manifest limit")
+                return result
+            manifest = manifest_bytes.decode("utf-8", errors="replace")
             manifest_prefix = manifest_name.rsplit("/", 1)[0] + "/" if "/" in manifest_name else ""
+            total_uncompressed_read = len(manifest_bytes)
             for line in manifest.splitlines():
                 if not line.strip():
                     continue
@@ -165,7 +210,18 @@ def verify_artifact_zip(raw: bytes) -> dict[str, Any]:
                 if not member:
                     result["errors"].append(f"missing {rel}")
                     continue
-                actual = hashlib.sha256(zf.read(member)).hexdigest().lower()
+                digest = hashlib.sha256()
+                with zf.open(member) as member_stream:
+                    while True:
+                        chunk = member_stream.read(DOWNLOAD_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        total_uncompressed_read += len(chunk)
+                        if total_uncompressed_read > MAX_ARTIFACT_UNCOMPRESSED_BYTES:
+                            result["errors"].append("artifact ZIP exceeds the 1 GiB uncompressed size limit while reading")
+                            return result
+                        digest.update(chunk)
+                actual = digest.hexdigest().lower()
                 result["checked"] += 1
                 if actual != expected:
                     result["errors"].append(f"checksum mismatch {rel}")
