@@ -72,7 +72,7 @@ class WindowsLauncherMockE2ETests(unittest.TestCase):
             source = (ROOT / "run-control-center.bat").read_text(encoding="utf-8")
             detection = 'where py >nul 2>nul\nif %errorlevel%==0 (\n  set "PY=py"\n) else (\n  set "PY=python"\n)\n'
             self.assertIn(detection, source)
-            controlled = source.replace(detection, 'set "PY=python"\n', 1)
+            controlled = source.replace(detection, f'set "PY={python_stub}"\n', 1)
             (root / "run-control-center.bat").write_text(controlled.replace("\n", "\r\n"), encoding="utf-8")
             env = os.environ.copy()
             env["PATH"] = str(root) + os.pathsep + env.get("PATH", "")
