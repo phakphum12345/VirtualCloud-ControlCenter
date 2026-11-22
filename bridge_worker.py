@@ -303,8 +303,10 @@ def main() -> int:
         verification: dict[str, Any] = {}
         try:
             run = get_json(session, f"{API}/repos/{repo}/actions/runs/{run_id}")
-            jobs = get_all_items(session, f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", "jobs")
-            artifacts = get_all_items(session, f"{API}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", "artifacts")
+            job_items = get_all_items(session, f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", "jobs")
+            artifact_items = get_all_items(session, f"{API}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", "artifacts")
+            jobs = {"total_count": len(job_items), "jobs": job_items}
+            artifacts = {"total_count": len(artifact_items), "artifacts": artifact_items}
 
             run_meta = root / f"run-{run_id}.json"
             write_json(run_meta, {"run": run, "jobs": jobs})
