@@ -2,8 +2,15 @@ import hashlib
 import io
 import unittest
 import zipfile
+from unittest.mock import patch
 
-from bridge_worker import assert_artifact_integrity, find_named_files, validate_run_id, verify_artifact_zip
+from bridge_worker import (
+    assert_artifact_integrity,
+    download_bytes,
+    find_named_files,
+    validate_run_id,
+    verify_artifact_zip,
+)
 
 
 def make_artifact_zip(content=b"payload", manifest_name="SHA256SUMS.txt", manifest_line=None):
@@ -68,7 +75,77 @@ class DriveFilePaginationTests(unittest.TestCase):
         self.assertEqual(drive.file_api.calls[1]["pageToken"], "next-page")
 
 
+class DownloadBytesTests(unittest.TestCase):
+    class FakeResponse:
+        def __init__(self, chunks, headers=None):
+            self.chunks = chunks
+            self.headers = headers or {}
+            self.closed = False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size):
+            self.chunk_size = chunk_size
+            yield from self.chunks
+
+        def close(self):
+            self.closed = True
+
+    class FakeSession:
+        def __init__(self, response):
+            self.response = response
+            self.kwargs = None
+
+        def get(self, url, **kwargs):
+            self.kwargs = kwargs
+            return self.response
+
+    def test_download_rejects_oversized_content_length(self):
+        response = self.FakeResponse([], {"Content-Length": "6"})
+        session = self.FakeSession(response)
+        with patch("bridge_worker.MAX_DOWNLOAD_BYTES", 5):
+            with self.assertRaisesRegex(RuntimeError, "512 MiB response limit"):
+                download_bytes(session, "https://example.invalid/artifact.zip")
+        self.assertTrue(response.closed)
+        self.assertTrue(session.kwargs["stream"])
+
+    def test_download_rejects_stream_that_exceeds_limit(self):
+        response = self.FakeResponse([b"1234", b"56"])
+        session = self.FakeSession(response)
+        with patch("bridge_worker.MAX_DOWNLOAD_BYTES", 5):
+            with self.assertRaisesRegex(RuntimeError, "512 MiB response limit"):
+                download_bytes(session, "https://example.invalid/artifact.zip")
+        self.assertTrue(response.closed)
+
+    def test_download_returns_bounded_stream(self):
+        response = self.FakeResponse([b"ab", b"cd"])
+        session = self.FakeSession(response)
+        with patch("bridge_worker.MAX_DOWNLOAD_BYTES", 4):
+            self.assertEqual(download_bytes(session, "https://example.invalid/log.txt"), b"abcd")
+        self.assertTrue(response.closed)
+        self.assertEqual(session.kwargs["timeout"], 180)
+
+
 class VerifyArtifactZipTests(unittest.TestCase):
+    def test_uncompressed_archive_size_limit_is_enforced(self):
+        with patch("bridge_worker.MAX_ARTIFACT_UNCOMPRESSED_BYTES", 1):
+            result = verify_artifact_zip(make_artifact_zip())
+        self.assertFalse(result["ok"])
+        self.assertIn("artifact ZIP exceeds the 1 GiB uncompressed size limit", result["errors"])
+
+    def test_archive_member_count_limit_is_enforced(self):
+        with patch("bridge_worker.MAX_ARTIFACT_MEMBERS", 1):
+            result = verify_artifact_zip(make_artifact_zip())
+        self.assertFalse(result["ok"])
+        self.assertIn("artifact ZIP contains more than 1 members", result["errors"])
+
+    def test_manifest_size_limit_is_enforced(self):
+        with patch("bridge_worker.MAX_CHECKSUM_MANIFEST_BYTES", 1):
+            result = verify_artifact_zip(make_artifact_zip())
+        self.assertFalse(result["ok"])
+        self.assertIn("SHA256SUMS.txt exceeds the 4 MiB manifest limit", result["errors"])
+
     def test_valid_manifest_passes(self):
         result = verify_artifact_zip(make_artifact_zip())
         self.assertTrue(result["ok"])
