@@ -1,4 +1,7 @@
 import hashlib
+import os
+import shutil
+import subprocess
 import threading
 import time
 import re
@@ -45,6 +48,43 @@ class WindowsLauncherContractTests(unittest.TestCase):
         launcher = (ROOT / "run-control-center.bat").read_text(encoding="utf-8").lower()
         self.assertIn("%py% control_center.py\nif errorlevel 1 (\n  pause\n  exit /b 1\n)", launcher)
         self.assertTrue(launcher.rstrip().endswith("exit /b 0"))
+
+
+class WindowsLauncherMockE2ETests(unittest.TestCase):
+    def test_first_run_install_success_continues_to_application(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_dir = root / "stub"
+            stub_dir.mkdir()
+            marker = root / "commands.txt"
+            shutil.copy2(ROOT / "run-control-center.bat", root / "run-control-center.bat")
+            (stub_dir / "py.cmd").write_text(
+                '@echo off\r\n'
+                'if "%1"=="-c" exit /b 1\r\n'
+                'if "%1"=="-m" (\r\n'
+                '  echo pip>>"%VCC_TEST_MARKER%"\r\n'
+                '  exit /b 0\r\n'
+                ')\r\n'
+                'if "%1"=="control_center.py" (\r\n'
+                '  echo app>>"%VCC_TEST_MARKER%"\r\n'
+                '  exit /b 0\r\n'
+                ')\r\n'
+                'exit /b 0\r\n',
+                encoding="ascii",
+            )
+            env = os.environ.copy()
+            env["PATH"] = str(stub_dir) + os.pathsep + env.get("PATH", "")
+            env["VCC_TEST_MARKER"] = str(marker)
+            completed = subprocess.run(
+                ["cmd.exe", "/d", "/c", "run-control-center.bat"],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            self.assertEqual(marker.read_text(encoding="utf-8").splitlines(), ["pip", "app"])
 
 
 class RunnerWorkflowCredentialTests(unittest.TestCase):
