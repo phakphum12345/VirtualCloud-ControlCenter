@@ -53,10 +53,8 @@ class WindowsLauncherMockE2ETests(unittest.TestCase):
     def test_first_run_install_success_continues_to_application(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            stub_dir = root / "stub"
-            stub_dir.mkdir()
             marker = root / "commands.txt"
-            python_stub = stub_dir / "python.cmd"
+            python_stub = root / "python.cmd"
             python_stub.write_text(
                 '@echo off\r\n'
                 'if "%1"=="-c" exit /b 1\r\n'
@@ -74,9 +72,11 @@ class WindowsLauncherMockE2ETests(unittest.TestCase):
             source = (ROOT / "run-control-center.bat").read_text(encoding="utf-8")
             detection = 'where py >nul 2>nul\nif %errorlevel%==0 (\n  set "PY=py"\n) else (\n  set "PY=python"\n)\n'
             self.assertIn(detection, source)
-            controlled = source.replace(detection, f'set "PY="{python_stub}""\n', 1)
+            controlled = source.replace(detection, 'set "PY=python"\n', 1)
             (root / "run-control-center.bat").write_text(controlled.replace("\n", "\r\n"), encoding="utf-8")
             env = os.environ.copy()
+            env["PATH"] = str(root) + os.pathsep + env.get("PATH", "")
+            env["PATHEXT"] = ".CMD;.BAT;.EXE"
             env["VCC_TEST_MARKER"] = str(marker)
             cmd_exe = Path(env.get("WINDIR", r"C:\\Windows")) / "System32" / "cmd.exe"
             completed = subprocess.run(
