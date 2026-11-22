@@ -39,7 +39,7 @@ class SecretManagementDocumentationTests(unittest.TestCase):
         self.assertIn("do not write github secrets", (control_center.__doc__ or "").lower())
         readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
         self.assertIn("do not create or update github secrets", readme)
-        self.assertIn("do not transfer them to github", readme)
+        self.assertIn("does not transfer them to github", readme)
 
 
 class RunnerWorkflowCredentialTests(unittest.TestCase):
