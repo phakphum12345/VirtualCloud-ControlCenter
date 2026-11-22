@@ -18,6 +18,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from google.oauth2.credentials import Credentials as UserCredentials
@@ -65,6 +66,27 @@ def get_json(session: requests.Session, url: str) -> Any:
     response = session.get(url, timeout=60)
     response.raise_for_status()
     return response.json()
+
+def get_all_items(session: requests.Session, url: str, key: str) -> list[dict[str, Any]]:
+    """Follow GitHub API pagination links and collect every item in a list response."""
+    items: list[dict[str, Any]] = []
+    while url:
+        response = session.get(url, timeout=60)
+        try:
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get(key, []), list):
+                raise RuntimeError(f"GitHub API response field {key!r} must be a list")
+            items.extend(payload.get(key, []))
+            next_url = response.links.get("next", {}).get("url")
+        finally:
+            response.close()
+        if next_url:
+            parsed = urlsplit(next_url)
+            if parsed.scheme != "https" or parsed.netloc != "api.github.com":
+                raise RuntimeError("GitHub pagination link must remain on https://api.github.com")
+        url = next_url
+    return items
 
 
 def download_bytes(session: requests.Session, url: str) -> bytes:
@@ -281,8 +303,8 @@ def main() -> int:
         verification: dict[str, Any] = {}
         try:
             run = get_json(session, f"{API}/repos/{repo}/actions/runs/{run_id}")
-            jobs = get_json(session, f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")
-            artifacts = get_json(session, f"{API}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100")
+            jobs = get_all_items(session, f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", "jobs")
+            artifacts = get_all_items(session, f"{API}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", "artifacts")
 
             run_meta = root / f"run-{run_id}.json"
             write_json(run_meta, {"run": run, "jobs": jobs})
