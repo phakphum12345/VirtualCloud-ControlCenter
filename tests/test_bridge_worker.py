@@ -3,7 +3,7 @@ import io
 import unittest
 import zipfile
 
-from bridge_worker import assert_artifact_integrity, verify_artifact_zip
+from bridge_worker import assert_artifact_integrity, find_named_files, validate_run_id, verify_artifact_zip
 
 
 def make_artifact_zip(content=b"payload", manifest_name="SHA256SUMS.txt", manifest_line=None):
@@ -16,6 +16,56 @@ def make_artifact_zip(content=b"payload", manifest_name="SHA256SUMS.txt", manife
         if manifest_name:
             archive.writestr(manifest_name, manifest_line)
     return stream.getvalue()
+
+
+class RunIdValidationTests(unittest.TestCase):
+    def test_ascii_numeric_run_id_is_accepted(self):
+        self.assertEqual(validate_run_id("123456"), "123456")
+
+    def test_invalid_run_ids_are_rejected(self):
+        for value in ("", "../123", "123?x=1", "١٢٣", " 123 "):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "ASCII digits"):
+                    validate_run_id(value)
+
+
+class DriveFilePaginationTests(unittest.TestCase):
+    class FakeRequest:
+        def __init__(self, response):
+            self.response = response
+
+        def execute(self):
+            return self.response
+
+    class FakeFiles:
+        def __init__(self):
+            self.calls = []
+
+        def list(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs.get("pageToken") is None:
+                return DriveFilePaginationTests.FakeRequest({
+                    "files": [{"id": "first", "name": "receipt.json"}],
+                    "nextPageToken": "next-page",
+                })
+            return DriveFilePaginationTests.FakeRequest({
+                "files": [{"id": "second", "name": "receipt.json"}],
+            })
+
+    class FakeDrive:
+        def __init__(self):
+            self.file_api = DriveFilePaginationTests.FakeFiles()
+
+        def files(self):
+            return self.file_api
+
+    def test_find_named_files_reads_all_pages(self):
+        drive = self.FakeDrive()
+        result = find_named_files(drive, "folder-id", "receipt.json")
+        self.assertEqual([item["id"] for item in result], ["first", "second"])
+        self.assertEqual(len(drive.file_api.calls), 2)
+        self.assertEqual(drive.file_api.calls[0]["pageSize"], 1000)
+        self.assertEqual(drive.file_api.calls[1]["pageToken"], "next-page")
 
 
 class VerifyArtifactZipTests(unittest.TestCase):
