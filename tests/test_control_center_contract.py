@@ -1,4 +1,6 @@
 import hashlib
+import threading
+import time
 import re
 import tempfile
 import unittest
@@ -44,6 +46,61 @@ class RunnerWorkflowCredentialTests(unittest.TestCase):
         self.assertIn("explicitly set allow_noop=true", workflow)
         self.assertIn("exit 1", workflow)
         self.assertIn("throw 'No project build hook was found.", workflow)
+
+
+class RuntimeStatusFailureTests(unittest.TestCase):
+    def test_jobs_api_failure_is_unknown_not_idle(self):
+        instance = object.__new__(control_center.ControlCenter)
+        responses = iter([(0, '[{"databaseId": 123}]'), (1, "API unavailable")])
+        instance._run_quiet = lambda args: next(responses)
+        self.assertEqual(instance._runtime_status("owner/repo"), ("Unknown", "Unknown"))
+
+
+class BackgroundTaskGateTests(unittest.TestCase):
+    def test_duplicate_task_is_coalesced_until_completion(self):
+        gate = control_center.BackgroundTaskGate()
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        second_finished = threading.Event()
+
+        def first_task():
+            started.set()
+            release.wait(2)
+            finished.set()
+
+        self.assertTrue(gate.start("health", first_task))
+        self.assertTrue(started.wait(1))
+        self.assertFalse(gate.start("health", lambda: None))
+        self.assertTrue(gate.is_running("health"))
+        release.set()
+        self.assertTrue(finished.wait(1))
+        deadline = time.monotonic() + 1
+        while gate.is_running("health") and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(gate.is_running("health"))
+        self.assertTrue(gate.start("health", second_finished.set))
+        self.assertTrue(second_finished.wait(1))
+
+    def test_different_task_keys_can_run_independently(self):
+        gate = control_center.BackgroundTaskGate()
+        first = threading.Event()
+        second = threading.Event()
+        self.assertTrue(gate.start("health", first.set))
+        self.assertTrue(gate.start("runs", second.set))
+        self.assertTrue(first.wait(1))
+        self.assertTrue(second.wait(1))
+
+
+class RunIdValidationTests(unittest.TestCase):
+    def test_only_numeric_run_ids_are_valid(self):
+        self.assertTrue(control_center.is_valid_github_run_id("123456"))
+        self.assertTrue(control_center.is_valid_github_run_id(123456))
+        self.assertFalse(control_center.is_valid_github_run_id("../123"))
+        self.assertFalse(control_center.is_valid_github_run_id("123?x=1"))
+        self.assertFalse(control_center.is_valid_github_run_id(True))
+        self.assertFalse(control_center.is_valid_github_run_id(""))
+        self.assertFalse(control_center.is_valid_github_run_id("١٢٣"))
 
 
 class OAuthRedirectValidationTests(unittest.TestCase):

@@ -8,11 +8,14 @@ on:
       - bootstrap-control-plane.ps1
       - build-control-center.ps1
       - tests/bootstrap-control-plane-static-audit.ps1
+      - tests/powershell-parse-all.ps1
       - '**/*.py'
       - '*.py'
       - requirements*.txt
       - virtual-cloud-runners.yml
       - .github/workflows/repository-quality.yml
+      - '**/*.md'
+      - '*.md'
       - .github/workflows/bootstrap-safety-audit.yml
   pull_request:
     branches:
@@ -25,6 +28,8 @@ on:
       - requirements*.txt
       - virtual-cloud-runners.yml
       - .github/workflows/repository-quality.yml
+      - '**/*.md'
+      - '*.md'
       - .github/workflows/bootstrap-safety-audit.yml
   workflow_dispatch:
 
@@ -44,6 +49,14 @@ jobs:
       - name: Parse and audit with PowerShell 7
         shell: pwsh
         run: ./tests/bootstrap-control-plane-static-audit.ps1
+
+      - name: Parse all PowerShell scripts with Windows PowerShell 5.1
+        shell: powershell
+        run: ./tests/powershell-parse-all.ps1
+
+      - name: Parse all PowerShell scripts with PowerShell 7
+        shell: pwsh
+        run: ./tests/powershell-parse-all.ps1
 
   python-quality:
     runs-on: windows-latest

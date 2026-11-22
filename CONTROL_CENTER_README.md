@@ -71,6 +71,8 @@ On first use:
 - Cancel / Re-run / Re-run Failed.
 - Retry Drive Sync without rebuilding.
 - Live job/step monitor.
+- Background refresh requests are coalesced per task to avoid overlapping GitHub/Drive calls; GitHub API failures display **Unknown** rather than a false **Idle** state.
+- Manually entered GitHub Actions run IDs are validated before use in API paths or sync retry commands.
 - Run details: branch, SHA, actor, timestamps and duration.
 - Artifact Manager with download and SHA-256 verification.
 - Drive sync receipts and Sync History.

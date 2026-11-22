@@ -96,9 +96,9 @@ def build_artifact_download_path(download_dir: Path, run_id: str, artifact_id: s
     """Return a confined, deterministic download path for a GitHub artifact."""
     run_value = str(run_id).strip()
     artifact_value = str(artifact_id).strip()
-    if not re.fullmatch(r"\d+", run_value):
+    if not is_valid_github_run_id(run_value):
         raise ValueError("GitHub Actions run ID must contain digits only.")
-    if not re.fullmatch(r"\d+", artifact_value):
+    if not is_valid_github_run_id(artifact_value):
         raise ValueError("GitHub artifact ID must contain digits only.")
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(artifact_name)).strip(" .")[:80]
     if not safe_name or safe_name in {".", ".."}:
@@ -194,6 +194,10 @@ def is_valid_github_repo(value: object) -> bool:
         return False
     owner, repository = value.split("/", 1)
     return owner not in {".", ".."} and repository not in {".", ".."}
+
+
+def is_valid_github_run_id(value: object) -> bool:
+    return not isinstance(value, bool) and re.fullmatch(r"[0-9]+", str(value).strip()) is not None
 
 
 def delete_drive_candidates(drive, candidates: list[tuple[str, dict]]) -> tuple[int, int, str | None]:
@@ -333,6 +337,40 @@ class CommandRunner:
         return False
 
 
+class BackgroundTaskGate:
+    """Coalesce duplicate background requests by logical task key."""
+
+    def __init__(self):
+        self._guard = threading.Lock()
+        self._active: set[str] = set()
+
+    def is_running(self, key: str) -> bool:
+        with self._guard:
+            return key in self._active
+
+    def start(self, key: str, target) -> bool:
+        with self._guard:
+            if key in self._active:
+                return False
+            self._active.add(key)
+
+        def guarded():
+            try:
+                target()
+            finally:
+                with self._guard:
+                    self._active.discard(key)
+
+        thread = threading.Thread(target=guarded, daemon=True)
+        try:
+            thread.start()
+        except Exception:
+            with self._guard:
+                self._active.discard(key)
+            raise
+        return True
+
+
 class ControlCenter(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -346,6 +384,7 @@ class ControlCenter(tk.Tk):
             self.config_data.package_dir = str(self.base_dir)
         self.output_queue: queue.Queue = queue.Queue()
         self.runner = CommandRunner(self.output_queue)
+        self.background_tasks = BackgroundTaskGate()
 
         self.run_rows: dict[str, dict] = {}
         self.run_state_cache: dict[str, tuple[str, str]] = {}
@@ -1125,7 +1164,7 @@ class ControlCenter(tk.Tk):
 
             code, _ = self._run_quiet(["gh", "repo", "view", repo, "--json", "nameWithOwner"])
             if code != 0:
-                result.update({"Control repo": "Not created", "GitHub Workflows": "Not ready", "GitHub Secrets": "Not ready", "Drive Sync": "Not ready", "Last Sync": "Never"})
+                result.update({"Control repo": "Not accessible", "GitHub Workflows": "Not ready", "GitHub Secrets": "Not ready", "Drive Sync": "Not ready", "Last Sync": "Unknown"})
                 self.after(0, lambda: self._apply_health(result)); self.after(0, lambda: self._apply_runtime("Not ready", "Not ready")); return
             result["Control repo"] = "Ready"
 
@@ -1159,7 +1198,7 @@ class ControlCenter(tk.Tk):
             windows, macos = self._runtime_status(repo)
             self.after(0, lambda: self._apply_runtime(windows, macos))
             self.after(0, lambda: self._apply_health(result))
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start(f"health:{repo}", worker)
 
     def _apply_runtime(self, windows: str, macos: str):
         self.windows_runtime_var.set(windows); self.macos_runtime_var.set(macos)
@@ -1172,7 +1211,7 @@ class ControlCenter(tk.Tk):
             if not runs: return "Idle", "Idle"
             rid = str(runs[0]["databaseId"])
             jc, jo = self._run_quiet(["gh", "api", f"repos/{repo}/actions/runs/{rid}/jobs?per_page=100"])
-            if jc != 0: return "Idle", "Idle"
+            if jc != 0: return "Unknown", "Unknown"
             jobs = json.loads(jo).get("jobs", [])
             statuses = {"windows": "Idle", "macos": "Idle"}
             for j in jobs:
@@ -1397,6 +1436,9 @@ class ControlCenter(tk.Tk):
         self._retry_sync_run(rid)
 
     def _retry_sync_run(self, rid: str):
+        if not is_valid_github_run_id(rid):
+            messagebox.showerror(APP_NAME, "Invalid GitHub Actions run ID.")
+            return
         self.audit("retry-drive-sync", rid); self.notebook.select(self.logs_tab)
         args = ["gh", "workflow", "run", "virtual-cloud-drive-sync.yml", "--repo", self.repo(), "-f", f"source_run_id={rid}"]
         self.runner.run_async(args, callback=lambda c, o: self._after_action("retry-drive-sync", rid, c, o))
@@ -1422,7 +1464,7 @@ class ControlCenter(tk.Tk):
                 if not silent: self.log(f"Could not parse runs: {exc}", "err")
                 return
             self.after(0, lambda: self._populate_runs(data))
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start(f"runs:{repo}", worker)
 
     def _populate_runs(self, data: list[dict]):
         previous = dict(self.run_state_cache)
@@ -1482,7 +1524,7 @@ class ControlCenter(tk.Tk):
                 self.after(0, lambda: self._set_run_details(text))
             except Exception as exc:
                 if not silent: self.log(str(exc), "err")
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start(f"details:{rid}", worker)
 
     def _set_run_details(self, text: str):
         self.run_details.delete("1.0", "end"); self.run_details.insert("1.0", text)
@@ -1496,6 +1538,9 @@ class ControlCenter(tk.Tk):
     def refresh_monitor(self):
         rid = self.monitor_run_var.get().strip()
         if not rid: return
+        if not is_valid_github_run_id(rid):
+            self.monitor_summary_var.set("Invalid GitHub Actions run ID")
+            return
         repo = self.repo()
         def worker():
             c, o = self._run_quiet(["gh", "api", f"repos/{repo}/actions/runs/{rid}/jobs?per_page=100"])
@@ -1504,7 +1549,7 @@ class ControlCenter(tk.Tk):
             try: jobs = json.loads(o).get("jobs", [])
             except Exception: return
             self.after(0, lambda: self._populate_monitor_jobs(rid, jobs))
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start(f"monitor:{rid}", worker)
 
     def _populate_monitor_jobs(self, rid: str, jobs: list[dict]):
         self.monitor_jobs.clear()
@@ -1546,6 +1591,9 @@ class ControlCenter(tk.Tk):
     def load_monitor_logs(self):
         rid = self.monitor_run_var.get().strip()
         if not rid: return
+        if not is_valid_github_run_id(rid):
+            messagebox.showerror(APP_NAME, "Invalid GitHub Actions run ID.")
+            return
         self.notebook.select(self.logs_tab); self.audit("load-run-logs", rid)
         self.runner.run_async(["gh", "run", "view", rid, "--repo", self.repo(), "--log"])
 
@@ -1553,6 +1601,9 @@ class ControlCenter(tk.Tk):
     def refresh_artifacts(self):
         rid = self.artifact_run_var.get().strip() or self._selected_tree_run_id()
         if not rid: messagebox.showinfo(APP_NAME, "Enter or select a run ID first."); return
+        if not is_valid_github_run_id(rid):
+            messagebox.showerror(APP_NAME, "Invalid GitHub Actions run ID.")
+            return
         self.artifact_run_var.set(rid); repo = self.repo(); self.artifact_status_var.set("Loading…")
         def worker():
             c, o = self._run_quiet(["gh", "api", f"repos/{repo}/actions/runs/{rid}/artifacts?per_page=100"])
@@ -1564,7 +1615,7 @@ class ControlCenter(tk.Tk):
             try: receipt = self._load_receipts_map(120).get(rid, {})
             except Exception: pass
             self.after(0, lambda: self._populate_artifacts(rid, artifacts, receipt))
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start(f"artifacts:{rid}", worker)
 
     def _populate_artifacts(self, rid: str, artifacts: list[dict], receipt: dict):
         self.artifact_rows.clear()
@@ -1684,7 +1735,7 @@ class ControlCenter(tk.Tk):
             try: data = json.loads(o or "[]")
             except Exception: return
             self.after(0, lambda: self._populate_repositories(data))
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start(f"repositories:{owner}", worker)
 
     def _populate_repositories(self, data: list[dict]):
         self.repo_rows.clear()
@@ -1713,7 +1764,7 @@ class ControlCenter(tk.Tk):
             try: workflows = json.loads(o).get("workflows", [])
             except Exception: workflows = []
             self.after(0, lambda: self._populate_workflows(workflows))
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start(f"repo-workflows:{repo}", worker)
 
     def _populate_workflows(self, workflows: list[dict]):
         self.workflow_rows.clear(); display = []
@@ -1756,7 +1807,7 @@ class ControlCenter(tk.Tk):
             except Exception as exc:
                 self.after(0, lambda: self.sync_info_var.set(f"Drive error: {exc}")); return
             self.after(0, lambda: self._populate_sync_history(receipts))
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start("sync-history", worker)
 
     def _populate_sync_history(self, receipts: dict[str, dict]):
         for item in self.sync_tree.get_children(): self.sync_tree.delete(item)
@@ -1831,11 +1882,11 @@ class ControlCenter(tk.Tk):
                                 messagebox.showinfo(APP_NAME, f"Deleted {removed} old Drive files.")
                         self.after(0, notify)
                         self.after(0, self.refresh_sync_history)
-                    threading.Thread(target=deleter, daemon=True).start()
+                    self.background_tasks.start("cleanup-delete", deleter)
                 self.after(0, confirm)
             except Exception as exc:
                 self.after(0, lambda: messagebox.showerror(APP_NAME, f"Cleanup failed: {exc}"))
-        threading.Thread(target=worker, daemon=True).start()
+        self.background_tasks.start("cleanup-scan", worker)
 
     # ---------- auto refresh ----------
     def _schedule_auto_refresh(self):
