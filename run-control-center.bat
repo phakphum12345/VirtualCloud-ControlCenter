@@ -7,11 +7,18 @@ if %errorlevel%==0 (
 ) else (
   set "PY=python"
 )
-%PY% -c "import google_auth_oauthlib" >nul 2>nul
+%PY% -c "import requests, google.auth, google_auth_oauthlib, googleapiclient.discovery" >nul 2>nul
 if errorlevel 1 (
   echo Installing Virtual Cloud Control Center dependencies...
   %PY% -m pip install --disable-pip-version-check -r requirements.txt
-  if errorlevel 1 pause & exit /b 1
+  if errorlevel 1 (
+    pause
+    exit /b 1
+  )
 )
 %PY% control_center.py
-if errorlevel 1 pause
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
+exit /b 0
