@@ -2,8 +2,10 @@
 """Virtual Cloud Control Center.
 
 Windows-first desktop control plane for DRIVE_VIRTUAL_CLOUD + GitHub Actions.
-The application keeps secrets out of its config: only paths and non-secret settings
-are persisted locally. GitHub secrets are written with `gh secret set`.
+The application keeps credentials out of its local settings: non-secret preferences
+are persisted in its config, while Google Drive OAuth credentials remain in user AppData.
+The application and safe Bootstrap do not write GitHub Secrets; required Actions secrets
+must be configured separately through GitHub repository settings after explicit approval.
 """
 from __future__ import annotations
 

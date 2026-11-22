@@ -40,6 +40,11 @@ The workflow YAML files and application files in this source repository are pack
 
 ## Required GitHub Secrets
 
+Configure these values separately in the repository's **Settings → Secrets and variables → Actions**.
+The Control Center and safe Bootstrap do not create or update GitHub Secrets. The local OAuth
+authorization flow stores user credentials in the local application data directory; it does not
+transfer them to GitHub. Do not commit OAuth JSON or credential files.
+
 - `GDRIVE_USER_CREDENTIALS_JSON`
 - `GDRIVE_ARTIFACTS_FOLDER_ID`
 - `GDRIVE_LOGS_FOLDER_ID`
