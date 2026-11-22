@@ -8,6 +8,7 @@ from bridge_worker import (
     assert_artifact_integrity,
     download_bytes,
     find_named_files,
+    get_all_items,
     validate_run_id,
     verify_artifact_zip,
 )
@@ -73,6 +74,60 @@ class DriveFilePaginationTests(unittest.TestCase):
         self.assertEqual(len(drive.file_api.calls), 2)
         self.assertEqual(drive.file_api.calls[0]["pageSize"], 1000)
         self.assertEqual(drive.file_api.calls[1]["pageToken"], "next-page")
+
+
+class GitHubListPaginationTests(unittest.TestCase):
+    class FakeResponse:
+        def __init__(self, payload, next_url=None):
+            self.payload = payload
+            self.links = {"next": {"url": next_url}} if next_url else {}
+            self.closed = False
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+        def close(self):
+            self.closed = True
+
+    class FakeSession:
+        def __init__(self, responses):
+            self.responses = responses
+            self.urls = []
+
+        def get(self, url, timeout):
+            self.urls.append(url)
+            return self.responses[url]
+
+    def test_get_all_items_follows_next_page(self):
+        first = "https://api.github.com/repos/example/repo/actions/runs/1/artifacts?per_page=100"
+        second = "https://api.github.com/repos/example/repo/actions/runs/1/artifacts?per_page=100&page=2"
+        first_response = self.FakeResponse({"artifacts": [{"id": 1}]}, second)
+        second_response = self.FakeResponse({"artifacts": [{"id": 2}]})
+        session = self.FakeSession({first: first_response, second: second_response})
+        result = get_all_items(session, first, "artifacts")
+        self.assertEqual([item["id"] for item in result], [1, 2])
+        self.assertEqual(session.urls, [first, second])
+        self.assertTrue(first_response.closed)
+        self.assertTrue(second_response.closed)
+
+    def test_get_all_items_rejects_external_pagination_link(self):
+        first = "https://api.github.com/repos/example/repo/actions/runs/1/jobs?per_page=100"
+        response = self.FakeResponse({"jobs": []}, "https://evil.example/steal")
+        session = self.FakeSession({first: response})
+        with self.assertRaisesRegex(RuntimeError, "api.github.com"):
+            get_all_items(session, first, "jobs")
+        self.assertTrue(response.closed)
+
+    def test_get_all_items_rejects_non_list_response_field(self):
+        first = "https://api.github.com/repos/example/repo/actions/runs/1/jobs?per_page=100"
+        response = self.FakeResponse({"jobs": None})
+        session = self.FakeSession({first: response})
+        with self.assertRaisesRegex(RuntimeError, "must be a list"):
+            get_all_items(session, first, "jobs")
+        self.assertTrue(response.closed)
 
 
 class DownloadBytesTests(unittest.TestCase):
