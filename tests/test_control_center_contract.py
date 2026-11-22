@@ -56,7 +56,6 @@ class WindowsLauncherMockE2ETests(unittest.TestCase):
             stub_dir = root / "stub"
             stub_dir.mkdir()
             marker = root / "commands.txt"
-            shutil.copy2(ROOT / "run-control-center.bat", root / "run-control-center.bat")
             python_stub = stub_dir / "python.cmd"
             python_stub.write_text(
                 '@echo off\r\n'
@@ -88,8 +87,13 @@ class WindowsLauncherMockE2ETests(unittest.TestCase):
                 text=True,
                 timeout=15,
             )
-            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
-            self.assertEqual(marker.read_text(encoding="utf-8").splitlines(), ["pip", "app"])
+            marker_output = marker.read_text(encoding="utf-8") if marker.exists() else "<missing>"
+            self.assertEqual(
+                completed.returncode,
+                0,
+                f"marker={marker_output!r}; stdout={completed.stdout!r}; stderr={completed.stderr!r}",
+            )
+            self.assertEqual(marker_output.splitlines(), ["pip", "app"])
 
 
 class RunnerWorkflowCredentialTests(unittest.TestCase):
