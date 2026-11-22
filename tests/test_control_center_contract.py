@@ -58,8 +58,8 @@ class WindowsLauncherMockE2ETests(unittest.TestCase):
             stub_dir.mkdir()
             marker = root / "commands.txt"
             shutil.copy2(ROOT / "run-control-center.bat", root / "run-control-center.bat")
-            (stub_dir / "where.cmd").write_text("@echo off\r\nexit /b 1\r\n", encoding="ascii")
-            (stub_dir / "python.cmd").write_text(
+            (stub_dir / "where.cmd").write_text("@echo off\r\nexit /b 0\r\n", encoding="ascii")
+            launcher_stub = (
                 '@echo off\r\n'
                 'if "%1"=="-c" exit /b 1\r\n'
                 'if "%1"=="-m" (\r\n'
@@ -70,9 +70,10 @@ class WindowsLauncherMockE2ETests(unittest.TestCase):
                 '  echo app>>"%VCC_TEST_MARKER%"\r\n'
                 '  exit /b 0\r\n'
                 ')\r\n'
-                'exit /b 0\r\n',
-                encoding="ascii",
+                'exit /b 0\r\n'
             )
+            (stub_dir / "py.cmd").write_text(launcher_stub, encoding="ascii")
+            (stub_dir / "python.cmd").write_text(launcher_stub, encoding="ascii")
             env = os.environ.copy()
             env["PATH"] = str(stub_dir)
             env["PATHEXT"] = ".CMD;.BAT"
