@@ -38,6 +38,12 @@ def require(name: str) -> str:
         raise RuntimeError(f"Missing required environment variable: {name}")
     return value
 
+def validate_run_id(value: str) -> str:
+    """Reject malformed manually supplied source run IDs before any API or Drive call."""
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]+", value) is None:
+        raise ValueError("GitHub Actions run ID must contain ASCII digits only.")
+    return value
+
 
 def github_session(token: str) -> requests.Session:
     session = requests.Session()
@@ -75,9 +81,23 @@ def escape_drive_query(value: str) -> str:
 
 
 def find_named_files(drive, folder_id: str, name: str) -> list[dict[str, Any]]:
+    """Return every matching Drive file, not just the first API page."""
     q = f"'{folder_id}' in parents and name = '{escape_drive_query(name)}' and trashed = false"
-    result = drive.files().list(q=q, fields="files(id,name,webViewLink,parents)", pageSize=20).execute()
-    return result.get("files", [])
+    files: list[dict[str, Any]] = []
+    page_token = None
+    while True:
+        params = {
+            "q": q,
+            "fields": "nextPageToken,files(id,name,webViewLink,parents)",
+            "pageSize": 1000,
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        result = drive.files().list(**params).execute()
+        files.extend(result.get("files", []))
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            return files
 
 
 def upsert_file(drive, local_path: Path, folder_id: str, name: str | None = None):
@@ -173,7 +193,7 @@ def write_status(drive, root: Path, folder_id: str, run_id: str, status: str, ex
 def main() -> int:
     token = require("GITHUB_TOKEN")
     repo = require("GITHUB_REPOSITORY")
-    run_id = require("GITHUB_RUN_ID")
+    run_id = validate_run_id(require("GITHUB_RUN_ID"))
     drive_user = require("GDRIVE_USER_CREDENTIALS_JSON")
     folders = {
         "artifacts": require("GDRIVE_ARTIFACTS_FOLDER_ID"),
