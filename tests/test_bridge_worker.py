@@ -91,8 +91,8 @@ class VerifyArtifactZipTests(unittest.TestCase):
         stream = io.BytesIO()
         with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("artifact.txt", content)
-            archive.writestr("SHA256SUMS.txt", f"{digest}  artifact.txt\\n")
-            archive.writestr("nested/SHA256SUMS.txt", f"{digest}  artifact.txt\\n")
+            archive.writestr("SHA256SUMS.txt", f"{digest}  artifact.txt" + chr(10))
+            archive.writestr("nested/SHA256SUMS.txt", f"{digest}  artifact.txt" + chr(10))
         result = verify_artifact_zip(stream.getvalue())
         self.assertFalse(result["ok"])
         self.assertIn("multiple SHA256SUMS.txt manifests", result["errors"])
@@ -105,7 +105,7 @@ class VerifyArtifactZipTests(unittest.TestCase):
             archive.writestr("artifact.txt", content)
             with self.assertWarns(UserWarning):
                 archive.writestr("artifact.txt", content)
-            archive.writestr("SHA256SUMS.txt", f"{digest}  artifact.txt\\n")
+            archive.writestr("SHA256SUMS.txt", f"{digest}  artifact.txt" + chr(10))
         result = verify_artifact_zip(stream.getvalue())
         self.assertFalse(result["ok"])
         self.assertIn("duplicate ZIP member names", result["errors"])
