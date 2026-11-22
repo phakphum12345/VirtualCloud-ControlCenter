@@ -85,6 +85,31 @@ class VerifyArtifactZipTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("SHA256SUMS.txt missing", result["errors"])
 
+    def test_multiple_manifests_fail_closed(self):
+        content = b"payload"
+        digest = hashlib.sha256(content).hexdigest()
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("artifact.txt", content)
+            archive.writestr("SHA256SUMS.txt", f"{digest}  artifact.txt\\n")
+            archive.writestr("nested/SHA256SUMS.txt", f"{digest}  artifact.txt\\n")
+        result = verify_artifact_zip(stream.getvalue())
+        self.assertFalse(result["ok"])
+        self.assertIn("multiple SHA256SUMS.txt manifests", result["errors"])
+
+    def test_duplicate_zip_member_names_fail_closed(self):
+        content = b"payload"
+        digest = hashlib.sha256(content).hexdigest()
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("artifact.txt", content)
+            with self.assertWarns(UserWarning):
+                archive.writestr("artifact.txt", content)
+            archive.writestr("SHA256SUMS.txt", f"{digest}  artifact.txt\\n")
+        result = verify_artifact_zip(stream.getvalue())
+        self.assertFalse(result["ok"])
+        self.assertIn("duplicate ZIP member names", result["errors"])
+
     def test_malformed_digest_fails(self):
         result = verify_artifact_zip(make_artifact_zip(manifest_line="not-a-hash  artifact.txt\n"))
         self.assertFalse(result["ok"])

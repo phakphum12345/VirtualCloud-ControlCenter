@@ -127,12 +127,19 @@ def verify_artifact_zip(raw: bytes) -> dict[str, Any]:
     result: dict[str, Any] = {"ok": False, "checked": 0, "errors": []}
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-            names = set(zf.namelist())
-            checksum_members = [n for n in names if n.endswith("SHA256SUMS.txt")]
+            member_names = zf.namelist()
+            if len(member_names) != len(set(member_names)):
+                result["errors"].append("duplicate ZIP member names")
+                return result
+            names = set(member_names)
+            checksum_members = [n for n in member_names if n.endswith("SHA256SUMS.txt")]
             if not checksum_members:
                 result["errors"].append("SHA256SUMS.txt missing")
                 return result
-            manifest_name = sorted(checksum_members)[0]
+            if len(checksum_members) != 1:
+                result["errors"].append("multiple SHA256SUMS.txt manifests")
+                return result
+            manifest_name = checksum_members[0]
             manifest = zf.read(manifest_name).decode("utf-8", errors="replace")
             manifest_prefix = manifest_name.rsplit("/", 1)[0] + "/" if "/" in manifest_name else ""
             for line in manifest.splitlines():
