@@ -80,6 +80,16 @@ On first use:
 - Optional private cross-repo access via `MULTI_REPO_TOKEN`.
 - Audit log, auto refresh, notifications, settings backup/restore, retention cleanup, and EXE build.
 
+## Bridge artifact resource limits
+
+The Drive Sync bridge fails closed when downloaded content exceeds its resource limits:
+
+- Each GitHub artifact or job-log response is limited to **512 MiB**.
+- Each artifact ZIP is limited to **1 GiB total uncompressed content** and **10,000 ZIP members**.
+- The `SHA256SUMS.txt` manifest is limited to **4 MiB**.
+- ZIP members are hashed incrementally; duplicate member names and ambiguous checksum manifests are rejected.
+- Oversized or invalid artifacts do not produce a successful sync receipt.
+
 ## First setup
 
 1. Ensure GitHub CLI (`gh`), Git and Python are installed.
