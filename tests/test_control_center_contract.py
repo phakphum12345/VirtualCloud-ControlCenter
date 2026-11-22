@@ -34,6 +34,18 @@ class BootstrapCommandContractTests(unittest.TestCase):
         self.assertNotIn("-SkipSecrets", command)
 
 
+class WindowsLauncherContractTests(unittest.TestCase):
+    def test_dependency_install_failure_is_the_only_install_exit_path(self):
+        launcher = (ROOT / "run-control-center.bat").read_text(encoding="utf-8").lower()
+        self.assertNotIn("if errorlevel 1 pause & exit /b 1", launcher)
+        self.assertIn("if errorlevel 1 (\n    pause\n    exit /b 1\n  )", launcher)
+
+    def test_application_failure_is_returned_to_the_caller(self):
+        launcher = (ROOT / "run-control-center.bat").read_text(encoding="utf-8").lower()
+        self.assertIn("%py% control_center.py\nif errorlevel 1 (\n  pause\n  exit /b 1\n)", launcher)
+        self.assertTrue(launcher.rstrip().endswith("exit /b 0"))
+
+
 class RunnerWorkflowCredentialTests(unittest.TestCase):
     def test_checkout_does_not_persist_cross_repository_token(self):
         workflow = (ROOT / "virtual-cloud-runners.yml").read_text(encoding="utf-8")
