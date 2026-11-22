@@ -34,6 +34,14 @@ class BootstrapCommandContractTests(unittest.TestCase):
         self.assertNotIn("-SkipSecrets", command)
 
 
+class SecretManagementDocumentationTests(unittest.TestCase):
+    def test_module_and_readme_do_not_claim_automatic_secret_writes(self):
+        self.assertIn("do not write github secrets", (control_center.__doc__ or "").lower())
+        readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
+        self.assertIn("do not create or update github secrets", readme)
+        self.assertIn("do not transfer them to github", readme)
+
+
 class RunnerWorkflowCredentialTests(unittest.TestCase):
     def test_checkout_does_not_persist_cross_repository_token(self):
         workflow = (ROOT / "virtual-cloud-runners.yml").read_text(encoding="utf-8")
