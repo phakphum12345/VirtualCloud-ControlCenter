@@ -122,3 +122,26 @@ No files were deleted and no new source files were required. Existing workflow f
 
 **Audit conclusion:** The merged code changes and CI evidence above are verified for the audited commit. The repository is not certified for live production provisioning or Google Drive operation until the remaining approvals and integration tests are completed.
 
+## Follow-up security review — 2026-11-23
+
+### Finding: artifact names used as local temporary paths
+
+The Drive bridge previously interpolated the GitHub Actions artifact `name` directly into temporary ZIP and checksum-manifest paths. Artifact names are externally supplied workflow metadata, so path separators and traversal segments could escape the intended temporary directory on the runner.
+
+### Remediation
+
+- Added `safe_artifact_file_stem`, which validates artifact IDs as ASCII digits and sanitizes artifact names into bounded filesystem-safe stems.
+- Added the artifact ID to each local stem to prevent collisions when artifact names repeat.
+- ZIP and checksum-manifest temporary files now use only the safe stem; the original artifact name remains in receipt metadata.
+- Duplicate artifact names receive distinct verification-map keys.
+- Added regression coverage for POSIX and Windows traversal strings, separators, empty/dot names, invalid IDs, and ID-based uniqueness.
+
+### Scope and validation
+
+- Changed files: `bridge_worker.py`, `tests/test_bridge_worker.py`.
+- No external services, Google Drive data, secrets, repository permissions, or infrastructure were changed.
+- The PR's initial code head `da16fcc19ac7de04848eaaae21d9bed83e82a900` passed Python compile, all unit/contract tests, Windows EXE build, YAML parsing, Windows PowerShell 5.1/7 Bootstrap audit, and repository-wide PowerShell parsing in GitHub Actions:
+  - [Repository Quality — PR #13](https://github.com/phakphum12345/VirtualCloud-ControlCenter/actions/runs/45119994153)
+  - [Bootstrap Safety Audit — PR #13](https://github.com/phakphum12345/VirtualCloud-ControlCenter/actions/runs/45119994145)
+
+This is a static/isolated security remediation. No live Google Drive integration was exercised.
