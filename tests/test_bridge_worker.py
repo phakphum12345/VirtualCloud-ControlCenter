@@ -40,11 +40,11 @@ class RunIdValidationTests(unittest.TestCase):
 
 class ArtifactFilenameSafetyTests(unittest.TestCase):
     def test_path_traversal_and_separators_are_reduced_to_safe_names(self):
-        for name in ("../../outside", r"..\\..\\outside", "/tmp/escape", "nested/name"):
+        for name in ("../../outside", r"..\\..\\outside", r"..\..\outside", "/tmp/escape", "nested/name"):
             with self.subTest(name=name):
                 stem = safe_artifact_file_stem(42, name)
                 self.assertNotIn("/", stem)
-                self.assertNotIn("\\\\", stem)
+                self.assertNotIn("\\", stem)
                 self.assertNotIn(":", stem)
                 self.assertTrue(stem.endswith("-42"))
 
