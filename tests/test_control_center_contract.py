@@ -54,7 +54,7 @@ class SecretManagementDocumentationTests(unittest.TestCase):
         self.assertIn("multi_repo_token", module_doc)
 
         readme = " ".join((ROOT / "README.md").read_text(encoding="utf-8").lower().split())
-        self.assertIn("safe bootstrap never writes github secrets", readme)
+        self.assertIn("safe bootstrap never creates or updates github secrets", readme)
         self.assertIn("explicit confirmation", readme)
         self.assertIn("multi_repo_token", readme)
 
