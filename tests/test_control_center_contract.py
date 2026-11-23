@@ -48,11 +48,29 @@ class WindowsLauncherContractTests(unittest.TestCase):
 
 
 class SecretManagementDocumentationTests(unittest.TestCase):
-    def test_module_and_readme_do_not_claim_automatic_secret_writes(self):
-        self.assertIn("do not write github secrets", (control_center.__doc__ or "").lower())
+    def test_docs_distinguish_safe_bootstrap_from_confirmed_multi_repo_secret_write(self):
+        module_doc = (control_center.__doc__ or "").lower()
+        self.assertIn("safe bootstrap never writes github secrets", module_doc)
+        self.assertIn("multi_repo_token", module_doc)
+
         readme = " ".join((ROOT / "README.md").read_text(encoding="utf-8").lower().split())
-        self.assertIn("do not create or update github secrets", readme)
-        self.assertIn("does not transfer them to github", readme)
+        self.assertIn("safe bootstrap never creates or updates github secrets", readme)
+        self.assertIn("explicit confirmation", readme)
+        self.assertIn("multi_repo_token", readme)
+
+    def test_command_display_redacts_all_github_field_values(self):
+        rendered = control_center.CommandRunner.display_cmd([
+            "gh", "workflow", "run", "deploy.yml",
+            "-f", "token=secret-value",
+            "-f", "environment=production",
+            "-F", "payload={\"api_key\":\"another-secret\"}",
+        ])
+        self.assertNotIn("secret-value", rendered)
+        self.assertNotIn("production", rendered)
+        self.assertNotIn("another-secret", rendered)
+        self.assertIn("token=<redacted>", rendered)
+        self.assertIn("environment=<redacted>", rendered)
+        self.assertIn("payload=<redacted>", rendered)
 
 
 

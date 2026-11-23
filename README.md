@@ -30,7 +30,7 @@ Runner dispatch fails if no project build hook is present. A runner-only smoke t
 
 ## Bootstrap safety contract
 
-`bootstrap-control-plane.ps1` is deliberately plan-only by default. It verifies the configured target repository and prepares a local review plan; it does not create repositories, write GitHub Secrets, stage files, commit, push, or publish workflows. The Control Center's **Prepare Safe Bootstrap Plan** action uses only the script's supported `-Repo` argument. Any future remote provisioning or secret-writing operation must be a separate, explicitly approved workflow.
+`bootstrap-control-plane.ps1` is deliberately plan-only by default. It verifies the configured target repository and prepares a local review plan; it does not create repositories, write GitHub Secrets, stage files, commit, push, or publish workflows. The Control Center's **Prepare Safe Bootstrap Plan** action uses only the script's supported `-Repo` argument. Separately, the desktop app offers **Configure Private Multi-Repo Access**: only after explicit in-app confirmation, it reads the current `gh auth token` and writes it as `MULTI_REPO_TOKEN` to the configured control repository. This optional action is not part of Bootstrap; it does not display the token or save it in local settings. No other GitHub Secret is written by the app.
 
 The workflow YAML files and application files in this source repository are package templates. Bootstrap maps them into the target Control Plane layout under `.github/workflows/`, `tools/virtual-cloud/`, and `app/`.
 
@@ -41,9 +41,7 @@ The workflow YAML files and application files in this source repository are pack
 ## Required GitHub Secrets
 
 Configure these values separately in the repository's **Settings → Secrets and variables → Actions**.
-The Control Center and safe Bootstrap do not create or update GitHub Secrets. The local OAuth
-authorization flow stores user credentials in the local application data directory; it does not
-transfer them to GitHub. Do not commit OAuth JSON or credential files.
+The safe Bootstrap never creates or updates GitHub Secrets. The optional **Configure Private Multi-Repo Access** action is the sole exception: after explicit confirmation, it writes the current GitHub CLI token only to `MULTI_REPO_TOKEN`. The Drive secrets listed below must be configured separately by an authorized repository administrator. The local OAuth authorization flow stores user credentials in the local application data directory; it does not transfer them to GitHub. Do not commit OAuth JSON or credential files.
 
 - `GDRIVE_USER_CREDENTIALS_JSON`
 - `GDRIVE_ARTIFACTS_FOLDER_ID`
