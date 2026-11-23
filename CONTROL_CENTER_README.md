@@ -58,7 +58,8 @@ On first use:
 - OAuth/token JSON is not included in the package ZIP.
 - OAuth/token files are excluded by `.gitignore` and are never committed by Bootstrap.
 - Web OAuth callbacks accept only explicit-port HTTP loopback URIs (`localhost` or `127.0.0.1`); callback error text is HTML-escaped.
-- The current safe Bootstrap script does not write GitHub Secrets or send OAuth credentials to GitHub.
+- The safe Bootstrap script does not write GitHub Secrets or send OAuth credentials to GitHub.
+- The optional **Configure Private Multi-Repo Access** action asks for explicit confirmation, reads the active `gh auth token`, and writes it only as `MULTI_REPO_TOKEN` to the configured control repository. It does not display the token or save it in local settings; it is separate from Bootstrap and does not write the Drive secrets.
 - Any future transfer of Drive credentials or folder IDs to GitHub Secrets must be separately approved and performed through a dedicated secure operation.
 - Secret values are never displayed in the Control Center.
 - Local settings, OAuth client JSON, and generated OAuth credentials are written through atomic file replacement to avoid partially written files.
