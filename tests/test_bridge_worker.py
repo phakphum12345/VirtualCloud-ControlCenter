@@ -9,6 +9,7 @@ from bridge_worker import (
     download_bytes,
     find_named_files,
     get_all_items,
+    safe_artifact_file_stem,
     validate_run_id,
     verify_artifact_zip,
 )
@@ -35,6 +36,33 @@ class RunIdValidationTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(ValueError, "ASCII digits"):
                     validate_run_id(value)
+
+
+class ArtifactFilenameSafetyTests(unittest.TestCase):
+    def test_path_traversal_and_separators_are_reduced_to_safe_names(self):
+        for name in ("../../outside", r"..\\..\\outside", "/tmp/escape", "nested/name"):
+            with self.subTest(name=name):
+                stem = safe_artifact_file_stem(42, name)
+                self.assertNotIn("/", stem)
+                self.assertNotIn("\\\\", stem)
+                self.assertNotIn(":", stem)
+                self.assertTrue(stem.endswith("-42"))
+
+    def test_empty_and_dot_names_use_safe_fallback(self):
+        self.assertEqual(safe_artifact_file_stem(7, ".."), "artifact-7")
+        self.assertEqual(safe_artifact_file_stem(8, ""), "artifact-8")
+
+    def test_artifact_ids_must_be_ascii_digits(self):
+        for artifact_id in ("../7", "٧", "", None):
+            with self.subTest(artifact_id=artifact_id):
+                with self.assertRaisesRegex(ValueError, "ASCII digits"):
+                    safe_artifact_file_stem(artifact_id, "bundle")
+
+    def test_artifact_id_keeps_sanitized_names_unique(self):
+        self.assertNotEqual(
+            safe_artifact_file_stem(1, "bundle"),
+            safe_artifact_file_stem(2, "bundle"),
+        )
 
 
 class DriveFilePaginationTests(unittest.TestCase):
