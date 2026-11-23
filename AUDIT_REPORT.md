@@ -107,7 +107,7 @@ No files were deleted and no new source files were required. Existing workflow f
 - GitHub Actions run IDs are validated before API/Drive work; GitHub jobs and artifacts and Google Drive name lookups now follow pagination.
 - Artifact verification rejects ambiguous manifests and duplicate ZIP member names. Downloads are capped at **512 MiB per response**, ZIP expansion at **1 GiB**, archive entries at **10,000**, and checksum manifests at **4 MiB**. Oversized or ambiguous inputs fail closed.
 - The Windows launcher now returns failure codes rather than exiting after a successful first-run dependency installation.
-- The Control Center does not write GitHub Secrets. Required Actions secrets are configured separately by an authorized repository administrator; OAuth authorization remains local.
+- The safe Bootstrap never writes GitHub Secrets. The desktop app has one separate, explicitly confirmed operation that writes only `MULTI_REPO_TOKEN`; the required Drive Actions secrets remain separately configured by an authorized repository administrator. No secret-write operation was executed during this audit; OAuth authorization remains local.
 - Targeted source searches for common private-key and GitHub-token patterns returned no matches. This is not a substitute for a formal GitHub secret-scanning review.
 - The safe Bootstrap remains plan-only by default. No live Bootstrap apply, repository provisioning, deployment, production service change, Google Drive data access, or secret operation was performed.
 
@@ -145,3 +145,16 @@ The Drive bridge previously interpolated the GitHub Actions artifact `name` dire
   - [Bootstrap Safety Audit — PR #13](https://github.com/phakphum12345/VirtualCloud-ControlCenter/actions/runs/45119994145)
 
 This is a static/isolated security remediation. No live Google Drive integration was exercised.
+
+## Follow-up security review — 2026-11-23 (workflow input logging)
+
+### Finding: workflow-dispatch input values could enter local logs
+
+The Repositories tab accepts arbitrary workflow-dispatch JSON inputs. Those values were passed to the foreground command logger and serialized into the local audit log. A user who supplied a token, password, credential, or other sensitive workflow input could therefore persist that value in the Control Center console/log/audit files.
+
+### Remediation
+
+- `CommandRunner.display_cmd` now redacts values supplied after GitHub CLI field flags (`-f`, `-F`, `--field`, and `--raw-field`) while retaining the field name for troubleshooting.
+- Workflow-dispatch audit records now record only the number of supplied inputs; input names and values are omitted.
+- Regression tests assert that representative secret and non-secret field values are absent from the rendered command.
+- Updated module and user documentation to distinguish the plan-only Bootstrap (which never writes secrets) from the optional, explicitly confirmed `MULTI_REPO_TOKEN` setup action. No secret operation was performed as part of this code change.
