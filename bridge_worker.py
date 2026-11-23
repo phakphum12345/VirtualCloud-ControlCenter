@@ -50,6 +50,18 @@ def validate_run_id(value: str) -> str:
         raise ValueError("GitHub Actions run ID must contain ASCII digits only.")
     return value
 
+def safe_artifact_file_stem(artifact_id: object, artifact_name: object) -> str:
+    """Build a unique, filesystem-safe local stem from untrusted artifact metadata."""
+    artifact_id_text = str(artifact_id)
+    if re.fullmatch(r"[0-9]+", artifact_id_text) is None:
+        raise ValueError("GitHub artifact ID must contain ASCII digits only.")
+
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(artifact_name or "")).strip(" ._")
+    name = name[:80].rstrip(" ._")
+    if not name or name in {".", ".."}:
+        name = "artifact"
+    return f"{name}-{artifact_id_text}"
+
 
 def github_session(token: str) -> requests.Session:
     session = requests.Session()
@@ -314,21 +326,27 @@ def main() -> int:
 
             for artifact in artifacts.get("artifacts", []):
                 artifact_id = artifact["id"]
-                artifact_name = artifact["name"]
+                artifact_name = str(artifact.get("name") or f"artifact-{artifact_id}")
                 artifact_names.append(artifact_name)
+                local_stem = safe_artifact_file_stem(artifact_id, artifact_name)
+                verification_key = artifact_name
+                if verification_key in verification:
+                    verification_key = f"{artifact_name} (id {artifact_id})"
+
                 raw = download_bytes(session, f"{API}/repos/{repo}/actions/artifacts/{artifact_id}/zip")
-                verification[artifact_name] = verify_artifact_zip(raw)
-                if verification[artifact_name].get("ok") is not True:
+                verification[verification_key] = verify_artifact_zip(raw)
+                if verification[verification_key].get("ok") is not True:
                     continue
 
-                zip_path = root / f"{artifact_name}.zip"
+                # Never use the user-controlled GitHub artifact name as a local path.
+                zip_path = root / f"{local_stem}.zip"
                 zip_path.write_bytes(raw)
                 uploaded.append(upsert_file(drive, zip_path, folders["artifacts"]))
 
                 with zipfile.ZipFile(io.BytesIO(raw)) as zf:
                     checksum_members = [m for m in zf.namelist() if m.endswith("SHA256SUMS.txt")]
                     if checksum_members:
-                        checksum_path = root / f"{artifact_name}-SHA256SUMS.txt"
+                        checksum_path = root / f"{local_stem}-SHA256SUMS.txt"
                         checksum_path.write_bytes(zf.read(sorted(checksum_members)[0]))
                         uploaded.append(upsert_file(drive, checksum_path, folders["checksums"]))
 
