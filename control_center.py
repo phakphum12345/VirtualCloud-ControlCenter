@@ -4,8 +4,9 @@
 Windows-first desktop control plane for DRIVE_VIRTUAL_CLOUD + GitHub Actions.
 The application keeps credentials out of its local settings: non-secret preferences
 are persisted in its config, while Google Drive OAuth credentials remain in user AppData.
-The application and safe Bootstrap do not write GitHub Secrets; required Actions secrets
-must be configured separately through GitHub repository settings after explicit approval.
+The safe Bootstrap never writes GitHub Secrets. The desktop app offers one separate,
+explicitly confirmed operation that can write only MULTI_REPO_TOKEN; required Drive Actions
+secrets must be configured separately through GitHub repository settings.
 """
 from __future__ import annotations
 
@@ -282,9 +283,23 @@ class CommandRunner:
 
     @staticmethod
     def display_cmd(args: list[str]) -> str:
+        """Format a command for logs while redacting GitHub CLI field values."""
         def q(v: str) -> str:
             return f'"{v}"' if any(c.isspace() for c in v) else v
-        return " ".join(q(str(a)) for a in args)
+
+        parts: list[str] = []
+        redact_next = False
+        field_flags = {"-f", "-F", "--field", "--raw-field"}
+        for arg in args:
+            value = str(arg)
+            if redact_next:
+                key, separator, _ = value.partition("=")
+                value = f"{key}=<redacted>" if separator else "<redacted>"
+                redact_next = False
+            elif value in field_flags:
+                redact_next = True
+            parts.append(q(value))
+        return " ".join(parts)
 
     def run_async(self, args: list[str], cwd: Path | None = None, callback=None, env=None):
         if self.busy:
@@ -1793,7 +1808,11 @@ class ControlCenter(tk.Tk):
             messagebox.showerror(APP_NAME, f"Invalid Inputs JSON: {exc}"); return
         args = ["gh", "workflow", "run", str(w.get("id")), "--repo", repo]
         for k, v in inputs.items(): args += ["-f", f"{k}={v}"]
-        self.audit("run-repo-workflow", f"{repo}:{w.get('name')}", details=json.dumps(inputs))
+        self.audit(
+            "run-repo-workflow",
+            f"{repo}:{w.get('name')}",
+            details=f"{len(inputs)} workflow input value(s) omitted from local audit logs",
+        )
         self.notebook.select(self.logs_tab); self.runner.run_async(args, callback=lambda c, o: self._after_action("run-repo-workflow", f"{repo}:{w.get('name')}", c, o))
 
     def open_selected_repo_actions(self):
